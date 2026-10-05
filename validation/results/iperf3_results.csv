@@ -1,0 +1,12 @@
+test_id,tool,server,streams,duration_sec,option,receiver_mbps
+1,iperf3,aarav_mac,1,10,normal,32.5
+2,iperf3,aarav_mac,2,10,normal,29.3
+3,iperf3,aarav_mac,4,10,normal,35.5
+4,iperf3,aarav_mac,8,10,normal,38.4
+5,iperf3,aarav_mac,4,10,normal,22.0
+6,iperf3,aarav_mac,4,10,normal,28.0
+7,iperf3,aarav_mac,1,10,normal,25.6
+8,iperf3,aarav_mac,1,10,normal,21.6
+9,iperf3,aarav_mac,1,10,-O 3,24.1
+10,iperf3,aarav_mac,1,10,-O 3,27.7
+11,iperf3,aarav_mac,1,10,-O 3,28.5
