@@ -1,4 +1,55 @@
-validation/.venv/
+# Python cache / compiled files
 __pycache__/
-*.pyc
+*.py[codz]
+*.class
+
+# Virtual environments
+.venv/
+validation/.venv/
+env/
+venv/
+ENV/
+env.bak/
+venv.bak/
+
+# Pytest
 .pytest_cache/
+
+# Test / coverage
+htmlcov/
+.coverage
+.coverage.*
+.cache
+.tox/
+.nox/
+.hypothesis/
+nosetests.xml
+coverage.xml
+*.cover
+*.py.cover
+cover/
+
+# Build / packaging
+build/
+dist/
+downloads/
+eggs/
+.eggs/
+*.egg-info/
+.installed.cfg
+*.egg
+MANIFEST
+
+# Environment / secrets
+.env
+.envrc
+
+# Jupyter
+.ipynb_checkpoints
+
+# IDE
+.idea/
+.vscode/
+
+# Project-specific
+tempCodeRunnerFile.py
