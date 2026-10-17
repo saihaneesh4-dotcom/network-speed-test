@@ -1,0 +1,62 @@
+<!DOCTYPE html>
+<html>
+<head>
+    <title>Mini Ookla</title>
+    <link rel="stylesheet" href="style.css">
+</head>
+<body>
+
+    <div class="container">
+
+        <h1>Mini Ookla</h1>
+        <p class="subtitle">Network Speed Test</p>
+
+        <button id="startBtn" onclick="startTest()">START TEST</button>
+
+        <div id="status">Ready</div>
+
+        <div class="results">
+
+            <div class="card">
+                <h3>Download</h3>
+                <p id="download">--</p>
+                <span>Mbps</span>
+            </div>
+
+            <div class="card">
+                <h3>Upload</h3>
+                <p id="upload">--</p>
+                <span>Mbps</span>
+            </div>
+
+            <div class="card">
+                <h3>Latency</h3>
+                <p id="latency">--</p>
+                <span>ms</span>
+            </div>
+
+            <div class="card">
+                <h3>Jitter</h3>
+                <p id="jitter">--</p>
+                <span>ms</span>
+            </div>
+
+            <div class="card">
+                <h3>Packet Loss</h3>
+                <p id="loss">--</p>
+                <span>%</span>
+            </div>
+
+            <div class="card">
+                <h3>Server</h3>
+                <p id="server">--</p>
+                <span>Selected Server</span>
+            </div>
+
+        </div>
+
+    </div>
+
+    <script src="script.js"></script>
+</body>
+</html>

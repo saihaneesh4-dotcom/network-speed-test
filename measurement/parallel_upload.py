@@ -1,68 +1,70 @@
+
 import socket
 import time
 import threading
 
 
 def upload_stream(host, port, duration, ramp_up_sec):
-
     client = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
+    client.settimeout(2)
 
-    client.connect((host, port))
+    try:
+        client.connect((host, port))
+        total_duration = duration + ramp_up_sec
 
-    total_duration = duration + ramp_up_sec
+        client.sendall(
+            f"UPLOAD {total_duration} 1 {ramp_up_sec}\n".encode()
+        )
 
-    request = f"UPLOAD {total_duration} 1\n"
-    client.sendall(request.encode())
+        buffer = b""
 
-    buffer = b""
+        while b"\n" not in buffer:
+            data = client.recv(1024)
+            if not data:
+                return 0
+            buffer += data
 
-    while b"\n" not in buffer:
+        response, remaining = buffer.split(b"\n", 1)
 
-        data = client.recv(1024)
-
-        if data == b"":
-            client.close()
+        if response.decode().strip() != "READY":
             return 0
 
-        buffer += data
+        start_time = time.perf_counter()
+        data = b"x" * 65536
 
-    response, remaining_data = buffer.split(b"\n", 1)
-
-    response = response.decode().strip()
-
-    if response != "READY":
-        client.close()
-        return 0
-
-    data = b"x" * 65536
-
-    measured_bytes = 0
-
-    start_time = time.perf_counter()
-
-    while True:
-
-        current_time = time.perf_counter()
-        elapsed = current_time - start_time
-
-        if elapsed >= total_duration:
-            break
+        while time.perf_counter() - start_time < total_duration:
+            try:
+                client.sendall(data)
+            except (BrokenPipeError, ConnectionResetError, socket.timeout):
+                break
 
         try:
-            client.sendall(data)
+            client.shutdown(socket.SHUT_WR)
+        except OSError:
+            return 0
 
-        except (BrokenPipeError, ConnectionResetError):
-            break
+        client.settimeout(5)
+        buffer = remaining
 
-        current_time = time.perf_counter()
-        elapsed = current_time - start_time
+        while b"\n" not in buffer:
+            received = client.recv(1024)
+            if not received:
+                return 0
+            buffer += received
 
-        if elapsed >= ramp_up_sec:
-            measured_bytes += len(data)
+        response = buffer.split(b"\n", 1)[0].decode().strip()
+        parts = response.split()
 
-    client.close()
+        if len(parts) == 2 and parts[0] == "RESULT":
+            return int(parts[1])
 
-    return measured_bytes
+        return 0
+
+    except (OSError, ValueError):
+        return 0
+
+    finally:
+        client.close()
 
 
 def measure_parallel_upload(
@@ -72,30 +74,18 @@ def measure_parallel_upload(
     streams=4,
     ramp_up_sec=2
 ):
-
     results = [0] * streams
     threads = []
-
     start_event = threading.Event()
 
     def run_stream(index):
-
         start_event.wait()
-
         results[index] = upload_stream(
-            host,
-            port,
-            duration,
-            ramp_up_sec
+            host, port, duration, ramp_up_sec
         )
 
     for i in range(streams):
-
-        thread = threading.Thread(
-            target=run_stream,
-            args=(i,)
-        )
-
+        thread = threading.Thread(target=run_stream, args=(i,))
         threads.append(thread)
         thread.start()
 
@@ -105,9 +95,4 @@ def measure_parallel_upload(
         thread.join()
 
     total_bytes = sum(results)
-
-    upload_mbps = (
-        total_bytes * 8
-    ) / duration / 1_000_000
-
-    return upload_mbps
+    return total_bytes * 8 / duration / 1_000_000
