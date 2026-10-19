@@ -1,0 +1,9 @@
+metric,value
+Number of paired trials,6
+Mean iperf3 receiver throughput (Mbps),156.42
+Mean Mini Ookla download throughput (Mbps),138.59
+"Mean signed difference, Mini Ookla minus iperf3 (Mbps)",-17.83
+Mean absolute throughput difference (Mbps),24.84
+Mean absolute percentage difference relative to iperf3 (%),14.88
+Sample standard deviation: iperf3 (Mbps),33.54
+Sample standard deviation: Mini Ookla (Mbps),24.03
