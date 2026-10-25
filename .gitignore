@@ -54,6 +54,7 @@ MANIFEST
 # Project-specific
 tempCodeRunnerFile.py
 
+
 # Local HTTPS certificates
 /certs/
 
@@ -65,3 +66,5 @@ token.tmp
 
 # Local certificate files
 rootCA.pem
+
+*.db

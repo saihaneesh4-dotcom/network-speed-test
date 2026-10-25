@@ -1,7 +1,7 @@
-
 import socket
 import time
 import threading
+
 
 HOST = "0.0.0.0"
 PORT = 5003
@@ -9,131 +9,205 @@ BUFFER_SIZE = 65536
 
 
 def handle_client(conn, addr):
-    print("\n[CONNECTION]", addr)
+
+    print()
+    print("[CONNECTION]", addr)
 
     try:
-        buffer = b""
 
-        while b"\n" not in buffer:
-            data = conn.recv(1024)
-            if not data:
-                return
-            buffer += data
+        while True:
 
-        command_line, remaining = buffer.split(b"\n", 1)
-        parts = command_line.decode().strip().split()
+            command = conn.recv(1024).decode().strip()
 
-        if not parts:
-            return
+            if not command:
+                break
 
-        command_type = parts[0]
+            parts = command.split()
 
-        if command_type == "PROBE":
-            conn.sendall(b"PROBE_ACK\n")
-            print("[PROBE] Acknowledged")
-            return
+            # ---------------- PROBE ----------------
 
-        if command_type not in ("DOWNLOAD", "UPLOAD"):
-            conn.sendall(b"INVALID_COMMAND\n")
-            return
+            if command == "PROBE":
 
-        if len(parts) not in (3, 4):
-            conn.sendall(b"INVALID_COMMAND\n")
-            return
+                conn.sendall(b"PROBE_ACK\n")
 
-        try:
-            duration = int(parts[1])
-            streams = int(parts[2])
-            ramp_up_sec = int(parts[3]) if len(parts) == 4 else 0
-        except ValueError:
-            conn.sendall(b"INVALID_COMMAND\n")
-            return
+                print("[PROBE] Acknowledged")
 
-        if duration <= 0 or streams <= 0 or ramp_up_sec < 0:
-            conn.sendall(b"INVALID_COMMAND\n")
-            return
+                continue
 
-        if command_type == "DOWNLOAD":
-            print("[DOWNLOAD] Started:", duration, "sec")
-            conn.sendall(b"READY\n")
+            # ---------------- VALIDATE ----------------
 
-            data = b"x" * BUFFER_SIZE
-            start = time.perf_counter()
-            total_bytes = 0
+            if len(parts) != 3:
+
+                conn.sendall(b"INVALID_COMMAND\n")
+
+                continue
+
+            command_type = parts[0]
 
             try:
-                while time.perf_counter() - start < duration:
-                    conn.sendall(data)
-                    total_bytes += len(data)
-            except (ConnectionResetError, BrokenPipeError, OSError):
-                pass
 
-            elapsed = time.perf_counter() - start
+                duration = int(parts[1])
+                streams = int(parts[2])
 
-            print("[DOWNLOAD] Bytes sent:", total_bytes)
-            print("[DOWNLOAD] Time:", round(elapsed, 3), "sec")
+            except ValueError:
 
-            if elapsed > 0:
-                print(
-                    "[DOWNLOAD] Server-side rate:",
-                    round(total_bytes * 8 / elapsed / 1_000_000, 2),
-                    "Mbps"
-                )
+                conn.sendall(b"INVALID_COMMAND\n")
 
-        elif command_type == "UPLOAD":
-            print("[UPLOAD] Started:", duration, "sec")
-            print("[UPLOAD] Ramp-up:", ramp_up_sec, "sec")
+                continue
 
-            conn.sendall(b"READY\n")
+            if duration <= 0 or streams <= 0:
 
-            total_bytes = 0
-            start = time.perf_counter()
+                conn.sendall(b"INVALID_COMMAND\n")
 
-            try:
-                while True:
-                    data = conn.recv(BUFFER_SIZE)
+                continue
 
-                    if not data:
-                        break
+            # ---------------- DOWNLOAD ----------------
 
-                    elapsed = time.perf_counter() - start
+            if command_type == "DOWNLOAD":
 
-                    if ramp_up_sec <= elapsed < duration:
+                print("[DOWNLOAD] Started")
+                print("  Duration :", duration, "sec")
+                print("  Stream   :", streams)
+
+                conn.sendall(b"READY\n")
+
+                data = b"x" * BUFFER_SIZE
+
+                total_bytes = 0
+
+                start = time.perf_counter()
+
+                try:
+
+                    while time.perf_counter() - start < duration:
+
+                        conn.sendall(data)
+
                         total_bytes += len(data)
 
-            except (ConnectionResetError, OSError):
-                pass
+                except (ConnectionResetError, BrokenPipeError):
 
-            elapsed = time.perf_counter() - start
+                    print("[DOWNLOAD] Client disconnected")
 
-            print("[UPLOAD] Measured bytes received:", total_bytes)
-            print("[UPLOAD] Time:", round(elapsed, 3), "sec")
+                elapsed = time.perf_counter() - start
 
-            conn.sendall(f"RESULT {total_bytes}\n".encode())
+                print()
+                print("[DOWNLOAD] Completed")
+                print("  Bytes      :", total_bytes)
+                print("  Time       :", round(elapsed, 3), "sec")
 
-    except (ConnectionResetError, BrokenPipeError, OSError) as e:
+                if elapsed > 0:
+
+                    speed = (
+                        total_bytes * 8
+                    ) / elapsed / 1_000_000
+
+                    print(
+                        "  Throughput :",
+                        round(speed, 2),
+                        "Mbps"
+                    )
+
+                break
+
+            # ---------------- UPLOAD ----------------
+
+            elif command_type == "UPLOAD":
+
+                print("[UPLOAD] Started")
+                print("  Duration :", duration, "sec")
+                print("  Stream   :", streams)
+
+                conn.sendall(b"READY\n")
+
+                total_bytes = 0
+
+                start = time.perf_counter()
+
+                try:
+
+                    while time.perf_counter() - start < duration:
+
+                        data = conn.recv(BUFFER_SIZE)
+
+                        if not data:
+                            break
+
+                        total_bytes += len(data)
+
+                except ConnectionResetError:
+
+                    print("[UPLOAD] Client disconnected")
+
+                elapsed = time.perf_counter() - start
+
+                print()
+                print("[UPLOAD] Completed")
+                print("  Bytes      :", total_bytes)
+                print("  Time       :", round(elapsed, 3), "sec")
+
+                if elapsed > 0:
+
+                    speed = (
+                        total_bytes * 8
+                    ) / elapsed / 1_000_000
+
+                    print(
+                        "  Throughput :",
+                        round(speed, 2),
+                        "Mbps"
+                    )
+
+                break
+
+            # ---------------- INVALID ----------------
+
+            else:
+
+                conn.sendall(b"INVALID_COMMAND\n")
+
+    except Exception as e:
+
         print("[ERROR]", e)
 
     finally:
+
         conn.close()
+
         print("[CONNECTION] Closed")
 
 
-server = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
-server.setsockopt(socket.SOL_SOCKET, socket.SO_REUSEADDR, 1)
+# ================= SERVER =================
+
+server = socket.socket(
+    socket.AF_INET,
+    socket.SOCK_STREAM
+)
+
+server.setsockopt(
+    socket.SOL_SOCKET,
+    socket.SO_REUSEADDR,
+    1
+)
+
 server.bind((HOST, PORT))
 server.listen()
 
+print()
 print("========================================")
 print("   CONCURRENT MEASUREMENT SERVER")
 print("========================================")
 print("Host:", HOST)
 print("Port:", PORT)
+print()
 
 while True:
+
     conn, addr = server.accept()
-    threading.Thread(
+
+    thread = threading.Thread(
         target=handle_client,
-        args=(conn, addr),
-        daemon=True
-    ).start()
+        args=(conn, addr)
+    )
+
+    thread.start()
