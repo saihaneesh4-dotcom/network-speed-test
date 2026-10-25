@@ -13,7 +13,7 @@ BACKEND_URL = os.environ.get(
     "http://127.0.0.1:5000"
 ).rstrip("/")
 
-HEARTBEAT_INTERVAL_SECONDS = 20
+HEARTBEAT_INTERVAL_SECONDS = 5
 PROBE_TIMEOUT_SECONDS = 2
 
 SERVERS_FILE = Path(__file__).resolve().parent / "servers.json"
@@ -27,30 +27,41 @@ def load_servers():
     return data.get("servers", [])
 
 
+
 def is_server_reachable(server):
-    """Check whether the server responds to the TCP measurement probe."""
+    """Return average TCP probe latency in milliseconds, or None if unreachable."""
     host = server["host"]
     port = int(server.get("measurement_port", server.get("port")))
 
-    try:
-        with socket.create_connection(
-            (host, port),
-            timeout=PROBE_TIMEOUT_SECONDS
-        ) as sock:
-            sock.settimeout(PROBE_TIMEOUT_SECONDS)
-            sock.sendall(b"PROBE\n")
+    latencies = []
 
-            response = sock.recv(1024).decode(
-                "utf-8",
-                errors="replace"
-            ).strip()
+    for _ in range(5):
+        try:
+            with socket.create_connection(
+                (host, port),
+                timeout=PROBE_TIMEOUT_SECONDS
+            ) as sock:
+                sock.settimeout(PROBE_TIMEOUT_SECONDS)
 
-            return response == "PROBE_ACK"
+                start = time.perf_counter()
+                sock.sendall(b"PROBE\n")
 
-    except (OSError, KeyError, TypeError, ValueError):
-        return False
+                response = sock.recv(1024).decode(
+                    "utf-8",
+                    errors="replace"
+                ).strip()
 
+                end = time.perf_counter()
 
+                if response != "PROBE_ACK":
+                    return None
+
+                latencies.append((end - start) * 1000)
+
+        except (OSError, KeyError, TypeError, ValueError):
+            return None
+
+    return sum(latencies) / len(latencies) if latencies else None
 def send_backend_request(endpoint, payload):
     """Send a JSON POST request to the backend."""
     url = BACKEND_URL + endpoint
@@ -109,6 +120,7 @@ def send_heartbeat(server):
     return send_backend_request("/servers/heartbeat", payload)
 
 
+
 def synchronize_servers():
     """Probe configured servers, register them, and send heartbeats."""
     try:
@@ -123,25 +135,27 @@ def synchronize_servers():
 
     for server in servers:
         server_id = server.get("server_id", "unknown")
+        latency = is_server_reachable(server)
 
-        if not is_server_reachable(server):
-            print(f"{server_id}: unreachable; skipping registration/heartbeat.")
+        if latency is None:
+            print(f"{server_id}: OFFLINE or probe failed.")
             continue
 
         registration = register_server(server)
 
         if registration is None:
-            print(f"{server_id}: registration failed; heartbeat skipped.")
+            print(f"{server_id}: probe OK ({latency:.2f} ms), registration failed.")
             continue
 
         heartbeat = send_heartbeat(server)
 
         if heartbeat is None:
-            print(f"{server_id}: registered, but heartbeat failed.")
+            print(f"{server_id}: probe OK ({latency:.2f} ms), but heartbeat failed.")
         else:
-            print(f"{server_id}: reachable, registered, heartbeat sent.")
-
-
+            print(
+                f"{server_id}: ONLINE | "
+                f"latency={latency:.2f} ms | heartbeat sent."
+            )
 def main():
     print("Server registry synchronizer started.")
     print(f"Backend: {BACKEND_URL}")

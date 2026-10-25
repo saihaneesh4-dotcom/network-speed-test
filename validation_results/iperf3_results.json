@@ -1,0 +1,30 @@
+{
+  "schema_version": 1,
+  "test_type": "iperf3",
+  "results": [
+    {
+      "server_ip": "127.0.0.1",
+      "trial_id": 999,
+      "duration_sec": 5,
+      "streams": 4,
+      "receiver_mbps": 123.45,
+      "timestamp": "2026-10-19T18:03:32",
+      "server_port": 5201,
+      "omit_sec": 2,
+      "protocol": "TCP"
+    },
+    {
+      "client_id": "aarav-mac",
+      "server_ip": "10.56.66.133",
+      "trial_id": 1,
+      "duration_sec": 5,
+      "streams": 4,
+      "upload_mbps": 167,
+      "download_mbps": 143.5,
+      "timestamp": "2026-10-19T18:00:00+05:30",
+      "server_port": 5201,
+      "omit_sec": 2,
+      "protocol": "TCP"
+    }
+  ]
+}
