@@ -1,4 +1,16 @@
+print("INTEGRATION TEST STARTED")
+import sys
+import os
+
+sys.path.append(
+    os.path.dirname(
+        os.path.dirname(
+            os.path.abspath(__file__)
+        )
+    )
+)
 import requests
+from measurement.measurement_engine import run_test
 from server_selector import select_best_server
 
 server = select_best_server()
@@ -10,20 +22,33 @@ if server is None:
 print()
 print("Selected server:", server["server_id"])
 
+measurement = run_test(
+    host=server["host"],
+    port=server["port"],
+    duration_sec=5,
+    streams=4,
+    ramp_up_sec=2
+)
+
+if measurement is None:
+    print("Measurement failed")
+    exit()
+
 result = {
     "server_id": server["server_id"],
-    "latency_ms": server["latency_ms"],
-    "jitter_ms": 1.0,
-    "packet_loss_percent": 0.0,
-    "download_mbps": 100.0,
-    "upload_mbps": 45.0,
-    "streams": 4,
-    "duration_sec": 10
+    "latency_ms": measurement["latency_ms"],
+    "jitter_ms": measurement["jitter_ms"],
+    "packet_loss_percent": measurement["packet_loss_percent"],
+    "download_mbps": measurement["download_mbps"],
+    "upload_mbps": measurement["upload_mbps"],
+    "streams": measurement["streams"],
+    "duration_sec": measurement["duration_sec"]
 }
 
 try:
+    print("Sending results")
     response = requests.post(
-        "http://127.0.0.1:5000/results",
+        "http://10.56.66.133:5000/results",
         json=result,
         timeout=5
     )

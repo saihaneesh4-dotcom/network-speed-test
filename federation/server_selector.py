@@ -1,8 +1,8 @@
-from server_registry import get_servers
-from server_probe import probe_server
+from federation.server_discoverer import discover_servers
+from federation.server_probe import probe_server
 
 def select_best_server():
-    servers = get_servers()
+    servers = discover_servers()
 
     best_server = None
     best_latency = float("inf")

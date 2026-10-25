@@ -16,12 +16,12 @@ def probe_server(server):
 
             start = time.perf_counter()
 
-            sock.send("PROBE".encode())
+            sock.send("PROBE\n".encode())
             response = sock.recv(1024).decode()
 
             end = time.perf_counter()
 
-            if response == "PROBE_ACK":
+            if response == "PROBE_ACK\n":
                 latency = (end - start) * 1000
                 latencies.append(latency)
             else:
