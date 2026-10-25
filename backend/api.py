@@ -14,7 +14,11 @@ from database import (
     register_server,
     record_heartbeat,
     get_registered_servers,
-    deregister_server
+    deregister_server,
+    create_validation_session,
+    update_validation_session,
+    get_validation_sessions,
+    get_validation_session
 )
 
 app = Flask(__name__)
@@ -78,6 +82,90 @@ def format_iperf3_result(result):
         "timestamp": result[11]
     }
 
+# Validation session endpoints
+
+@app.route("/validation/sessions", methods=["POST"])
+def create_validation_session_endpoint():
+    session = create_validation_session()
+
+    return jsonify(session), 201
+
+
+@app.route("/validation/sessions", methods=["GET"])
+def list_validation_sessions_endpoint():
+    return jsonify(get_validation_sessions()), 200
+
+
+@app.route(
+    "/validation/sessions/<session_id>",
+    methods=["GET"]
+)
+def get_validation_session_endpoint(session_id):
+    session = get_validation_session(session_id)
+
+    if session is None:
+        return error_response("Validation session not found", 404)
+
+    return jsonify(session), 200
+
+
+@app.route(
+    "/validation/sessions/<session_id>",
+    methods=["PATCH"]
+)
+def update_validation_session_endpoint(session_id):
+    data = get_json_body()
+
+    if data is None:
+        return error_response(
+            "Request body must contain a JSON object", 400
+        )
+
+    allowed_fields = {
+        "status",
+        "mini_ookla_status",
+        "iperf3_status",
+        "mini_ookla_error",
+        "iperf3_error"
+    }
+
+    unexpected_fields = set(data) - allowed_fields
+
+    if unexpected_fields:
+        return error_response(
+            "Unsupported fields: "
+            + ", ".join(sorted(unexpected_fields)),
+            400
+        )
+
+    for field in ("status", "mini_ookla_status", "iperf3_status"):
+        if field in data and not valid_text(data[field]):
+            return error_response(
+                field + " must be a non-empty string", 400
+            )
+
+    for field in ("mini_ookla_error", "iperf3_error"):
+        if field in data and not isinstance(data[field], str):
+            return error_response(
+                field + " must be a string", 400
+            )
+
+    try:
+        session = update_validation_session(
+            session_id=session_id,
+            status=data.get("status"),
+            mini_ookla_status=data.get("mini_ookla_status"),
+            iperf3_status=data.get("iperf3_status"),
+            mini_ookla_error=data.get("mini_ookla_error"),
+            iperf3_error=data.get("iperf3_error")
+        )
+    except ValueError as exc:
+        return error_response(str(exc), 400)
+
+    if session is None:
+        return error_response("Validation session not found", 404)
+
+    return jsonify(session), 200
 
 # Existing Mini-Ookla results endpoints
 
@@ -105,6 +193,21 @@ def add_result():
         if field not in data:
             return error_response(field + " is missing", 400)
 
+    session_id = data.get("session_id")
+
+    if session_id is not None:
+        if not valid_text(session_id):
+            return error_response(
+                "session_id must be a non-empty string", 400
+            )
+
+        session = get_validation_session(session_id.strip())
+
+        if session is None:
+            return error_response("Validation session not found", 404)
+
+        session_id = session_id.strip()
+
     timestamp = datetime.now().strftime("%Y-%m-%d %H:%M:%S")
 
     save_result(
@@ -116,8 +219,16 @@ def add_result():
         data["upload_mbps"],
         data["streams"],
         data["duration_sec"],
-        timestamp
+        timestamp,
+        session_id=session_id
     )
+
+    if session_id is not None:
+        update_validation_session(
+            session_id,
+            mini_ookla_status="completed",
+            mini_ookla_error=""
+        )
 
     return jsonify({
         "status": "success",
@@ -204,6 +315,21 @@ def add_iperf3_result():
                 field + " must be a non-empty string", 400
             )
 
+    session_id = data.get("session_id")
+
+    if session_id is not None:
+        if not valid_text(session_id):
+            return error_response(
+                "session_id must be a non-empty string", 400
+            )
+
+        session = get_validation_session(session_id.strip())
+
+        if session is None:
+            return error_response("Validation session not found", 404)
+
+        session_id = session_id.strip()
+
     if "metrics" in data and not isinstance(data["metrics"], dict):
         return error_response("metrics must be a JSON object", 400)
 
@@ -223,8 +349,16 @@ def add_iperf3_result():
         streams=data.get("streams"),
         raw_output=data.get("raw_output"),
         metrics=data.get("metrics", {}),
-        timestamp=timestamp
+        timestamp=timestamp,
+        session_id=session_id
     )
+
+    if session_id is not None:
+        update_validation_session(
+            session_id,
+            iperf3_status="completed",
+            iperf3_error=""
+        )
 
     return jsonify({
         "status": "success",
