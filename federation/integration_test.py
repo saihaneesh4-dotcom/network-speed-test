@@ -1,3 +1,4 @@
+print("INTEGRATION TEST STARTED")
 import sys
 import os
 
@@ -45,8 +46,9 @@ result = {
 }
 
 try:
+    print("Sending results")
     response = requests.post(
-        "http://127.0.0.1:5000/results",
+        "http://10.56.66.133:5000/results",
         json=result,
         timeout=5
     )
