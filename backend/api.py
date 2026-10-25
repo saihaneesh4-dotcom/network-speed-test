@@ -1,5 +1,6 @@
 
 import os
+import json
 from datetime import datetime
 
 from flask import Flask, request, jsonify
@@ -9,6 +10,8 @@ from database import (
     get_results,
     get_results_by_server,
     get_latest_result,
+    save_iperf3_result,
+    get_iperf3_results,
     register_server,
     record_heartbeat,
     get_registered_servers,
@@ -60,7 +63,24 @@ def format_result(result):
     }
 
 
-# Existing results endpoints
+def format_iperf3_result(result):
+    return {
+        "id": result[0],
+        "test_id": result[1],
+        "server_id": result[2],
+        "host": result[3],
+        "port": result[4],
+        "download_mbps": result[5],
+        "upload_mbps": result[6],
+        "duration_sec": result[7],
+        "streams": result[8],
+        "raw_output": result[9],
+        "metrics": json.loads(result[10]),
+        "timestamp": result[11]
+    }
+
+
+# Existing Mini-Ookla results endpoints
 
 @app.route("/results", methods=["POST"])
 def add_result():
@@ -128,7 +148,101 @@ def view_latest_result():
     return jsonify(format_result(result))
 
 
-# New server registry endpoints
+# Separate iperf3 validation endpoints
+
+@app.route("/iperf3/results", methods=["POST"])
+def add_iperf3_result():
+    data = get_json_body()
+
+    if data is None:
+        return error_response(
+            "Request body must contain a JSON object", 400
+        )
+
+    required_fields = ["download_mbps", "upload_mbps"]
+
+    for field in required_fields:
+        if field not in data:
+            return error_response(field + " is missing", 400)
+
+    numeric_fields = [
+        "download_mbps",
+        "upload_mbps",
+        "duration_sec",
+        "streams",
+        "port"
+    ]
+
+    for field in numeric_fields:
+        if field not in data:
+            continue
+
+        value = data[field]
+
+        if (
+            isinstance(value, bool)
+            or not isinstance(value, (int, float))
+            or value < 0
+        ):
+            return error_response(
+                field + " must be a non-negative number", 400
+            )
+
+    if "streams" in data and not isinstance(data["streams"], int):
+        return error_response("streams must be an integer", 400)
+
+    if "port" in data and (
+        not isinstance(data["port"], int)
+        or not 1 <= data["port"] <= 65535
+    ):
+        return error_response(
+            "port must be an integer between 1 and 65535", 400
+        )
+
+    for field in ["server_id", "host", "test_id"]:
+        if field in data and not valid_text(data[field]):
+            return error_response(
+                field + " must be a non-empty string", 400
+            )
+
+    if "metrics" in data and not isinstance(data["metrics"], dict):
+        return error_response("metrics must be a JSON object", 400)
+
+    if "raw_output" in data and not isinstance(data["raw_output"], str):
+        return error_response("raw_output must be a string", 400)
+
+    timestamp = datetime.now().strftime("%Y-%m-%d %H:%M:%S")
+
+    result_id = save_iperf3_result(
+        test_id=data.get("test_id"),
+        server_id=data.get("server_id"),
+        host=data.get("host"),
+        port=data.get("port"),
+        download_mbps=data["download_mbps"],
+        upload_mbps=data["upload_mbps"],
+        duration_sec=data.get("duration_sec"),
+        streams=data.get("streams"),
+        raw_output=data.get("raw_output"),
+        metrics=data.get("metrics", {}),
+        timestamp=timestamp
+    )
+
+    return jsonify({
+        "status": "success",
+        "message": "iperf3 validation result saved",
+        "id": result_id,
+        "timestamp": timestamp
+    }), 201
+
+
+@app.route("/iperf3/results", methods=["GET"])
+def view_iperf3_results():
+    return jsonify([
+        format_iperf3_result(r) for r in get_iperf3_results()
+    ]), 200
+
+
+# Existing server registry endpoints
 
 @app.route("/servers/register", methods=["POST"])
 def register_server_endpoint():

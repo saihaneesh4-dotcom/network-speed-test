@@ -1,6 +1,7 @@
 
 import sqlite3
 import os
+import json
 from datetime import datetime, timezone
 
 DB_PATH = os.path.join(os.path.dirname(__file__), "results.db")
@@ -41,6 +42,23 @@ def create_table():
         )
         """)
 
+        cursor.execute("""
+        CREATE TABLE IF NOT EXISTS iperf3_results (
+            id INTEGER PRIMARY KEY AUTOINCREMENT,
+            test_id TEXT,
+            server_id TEXT,
+            host TEXT,
+            port INTEGER,
+            download_mbps REAL NOT NULL,
+            upload_mbps REAL NOT NULL,
+            duration_sec REAL,
+            streams INTEGER,
+            raw_output TEXT,
+            metrics_json TEXT NOT NULL DEFAULT '{}',
+            timestamp TEXT NOT NULL
+        )
+        """)
+
         connection.commit()
     finally:
         connection.close()
@@ -62,6 +80,53 @@ def save_result(server_id, latency_ms, jitter_ms, packet_loss_percent,
             download_mbps, upload_mbps, streams, duration_sec, timestamp
         ))
         connection.commit()
+    finally:
+        connection.close()
+
+
+def save_iperf3_result(test_id, server_id, host, port,
+                       download_mbps, upload_mbps, duration_sec, streams,
+                       raw_output, metrics, timestamp):
+    connection = get_connection()
+    try:
+        cursor = connection.cursor()
+        cursor.execute("""
+        INSERT INTO iperf3_results (
+            test_id, server_id, host, port, download_mbps, upload_mbps,
+            duration_sec, streams, raw_output, metrics_json, timestamp
+        )
+        VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+        """, (
+            test_id,
+            server_id,
+            host,
+            port,
+            download_mbps,
+            upload_mbps,
+            duration_sec,
+            streams,
+            raw_output,
+            json.dumps(metrics, ensure_ascii=False),
+            timestamp
+        ))
+        connection.commit()
+        return cursor.lastrowid
+    finally:
+        connection.close()
+
+
+def get_iperf3_results():
+    connection = get_connection()
+    try:
+        cursor = connection.cursor()
+        cursor.execute("""
+            SELECT id, test_id, server_id, host, port, download_mbps,
+                   upload_mbps, duration_sec, streams, raw_output,
+                   metrics_json, timestamp
+            FROM iperf3_results
+            ORDER BY id DESC
+        """)
+        return cursor.fetchall()
     finally:
         connection.close()
 
