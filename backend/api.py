@@ -6,10 +6,12 @@ from flask import Flask, request, jsonify
 
 from database import (
     save_result,
+    save_validation_result,
     get_results,
     get_results_by_server,
     get_latest_result,
     save_iperf3_result,
+    save_validation_iperf3_result,
     get_iperf3_results,
     register_server,
     record_heartbeat,
@@ -210,25 +212,36 @@ def add_result():
 
     timestamp = datetime.now().strftime("%Y-%m-%d %H:%M:%S")
 
-    save_result(
-        data["server_id"],
-        data["latency_ms"],
-        data["jitter_ms"],
-        data["packet_loss_percent"],
-        data["download_mbps"],
-        data["upload_mbps"],
-        data["streams"],
-        data["duration_sec"],
-        timestamp,
-        session_id=session_id
-    )
-
-    if session_id is not None:
-        update_validation_session(
-            session_id,
-            mini_ookla_status="completed",
-            mini_ookla_error=""
-        )
+    try:
+        if session_id is not None:
+            save_validation_result(
+                data["server_id"],
+                data["latency_ms"],
+                data["jitter_ms"],
+                data["packet_loss_percent"],
+                data["download_mbps"],
+                data["upload_mbps"],
+                data["streams"],
+                data["duration_sec"],
+                timestamp,
+                session_id
+            )
+        else:
+            save_result(
+                data["server_id"],
+                data["latency_ms"],
+                data["jitter_ms"],
+                data["packet_loss_percent"],
+                data["download_mbps"],
+                data["upload_mbps"],
+                data["streams"],
+                data["duration_sec"],
+                timestamp
+            )
+    except ValueError as exc:
+        message = str(exc)
+        status_code = 404 if message == "Validation session not found" else 409
+        return error_response(message, status_code)
 
     return jsonify({
         "status": "success",
@@ -338,27 +351,40 @@ def add_iperf3_result():
 
     timestamp = datetime.now().strftime("%Y-%m-%d %H:%M:%S")
 
-    result_id = save_iperf3_result(
-        test_id=data.get("test_id"),
-        server_id=data.get("server_id"),
-        host=data.get("host"),
-        port=data.get("port"),
-        download_mbps=data["download_mbps"],
-        upload_mbps=data["upload_mbps"],
-        duration_sec=data.get("duration_sec"),
-        streams=data.get("streams"),
-        raw_output=data.get("raw_output"),
-        metrics=data.get("metrics", {}),
-        timestamp=timestamp,
-        session_id=session_id
-    )
-
-    if session_id is not None:
-        update_validation_session(
-            session_id,
-            iperf3_status="completed",
-            iperf3_error=""
-        )
+    try:
+        if session_id is not None:
+            result_id = save_validation_iperf3_result(
+                test_id=data.get("test_id"),
+                server_id=data.get("server_id"),
+                host=data.get("host"),
+                port=data.get("port"),
+                download_mbps=data["download_mbps"],
+                upload_mbps=data["upload_mbps"],
+                duration_sec=data.get("duration_sec"),
+                streams=data.get("streams"),
+                raw_output=data.get("raw_output"),
+                metrics=data.get("metrics", {}),
+                timestamp=timestamp,
+                session_id=session_id
+            )
+        else:
+            result_id = save_iperf3_result(
+                test_id=data.get("test_id"),
+                server_id=data.get("server_id"),
+                host=data.get("host"),
+                port=data.get("port"),
+                download_mbps=data["download_mbps"],
+                upload_mbps=data["upload_mbps"],
+                duration_sec=data.get("duration_sec"),
+                streams=data.get("streams"),
+                raw_output=data.get("raw_output"),
+                metrics=data.get("metrics", {}),
+                timestamp=timestamp
+            )
+    except ValueError as exc:
+        message = str(exc)
+        status_code = 404 if message == "Validation session not found" else 409
+        return error_response(message, status_code)
 
     return jsonify({
         "status": "success",

@@ -250,6 +250,126 @@ def update_validation_session(
 
     return get_validation_session(session_id)
 
+
+def _save_result_and_complete_session(session_id, test_name, insert_sql, values):
+    """Atomically save a session-linked result and complete its test."""
+    connection = get_connection()
+
+    status_column = (
+        "mini_ookla_status" if test_name == "mini_ookla"
+        else "iperf3_status"
+    )
+    error_column = (
+        "mini_ookla_error" if test_name == "mini_ookla"
+        else "iperf3_error"
+    )
+
+    try:
+        # Acquire the write lock before checking status to avoid a race
+        # with a concurrent failure update.
+        connection.execute("BEGIN IMMEDIATE")
+        cursor = connection.cursor()
+        cursor.execute("""
+            SELECT mini_ookla_status, iperf3_status
+            FROM validation_sessions
+            WHERE session_id = ?
+        """, (session_id,))
+        session = cursor.fetchone()
+
+        if session is None:
+            raise ValueError("Validation session not found")
+
+        if session[status_column] == "failed":
+            raise ValueError(
+                f"Cannot save result: {test_name} test has already failed"
+            )
+
+        cursor.execute(insert_sql, values)
+        result_id = cursor.lastrowid
+
+        mini_status = (
+            "completed" if test_name == "mini_ookla"
+            else session["mini_ookla_status"]
+        )
+        iperf_status = (
+            "completed" if test_name == "iperf3"
+            else session["iperf3_status"]
+        )
+        overall_status = calculate_validation_status(
+            mini_status, iperf_status
+        )
+
+        cursor.execute(f"""
+            UPDATE validation_sessions
+            SET {status_column} = 'completed',
+                {error_column} = '',
+                mini_ookla_status = ?,
+                iperf3_status = ?,
+                status = ?,
+                updated_at = ?
+            WHERE session_id = ?
+        """, (
+            mini_status,
+            iperf_status,
+            overall_status,
+            current_utc_timestamp(),
+            session_id
+        ))
+
+        connection.commit()
+        return result_id
+    except Exception:
+        connection.rollback()
+        raise
+    finally:
+        connection.close()
+
+
+def save_validation_result(
+    server_id, latency_ms, jitter_ms, packet_loss_percent,
+    download_mbps, upload_mbps, streams, duration_sec,
+    timestamp, session_id
+):
+    return _save_result_and_complete_session(
+        session_id,
+        "mini_ookla",
+        """
+            INSERT INTO results (
+                server_id, latency_ms, jitter_ms, packet_loss_percent,
+                download_mbps, upload_mbps, streams, duration_sec,
+                timestamp, session_id
+            ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+        """,
+        (
+            server_id, latency_ms, jitter_ms, packet_loss_percent,
+            download_mbps, upload_mbps, streams, duration_sec,
+            timestamp, session_id
+        )
+    )
+
+
+def save_validation_iperf3_result(
+    test_id, server_id, host, port, download_mbps, upload_mbps,
+    duration_sec, streams, raw_output, metrics, timestamp, session_id
+):
+    return _save_result_and_complete_session(
+        session_id,
+        "iperf3",
+        """
+            INSERT INTO iperf3_results (
+                test_id, server_id, host, port, download_mbps,
+                upload_mbps, duration_sec, streams, raw_output,
+                metrics_json, timestamp, session_id
+            ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+        """,
+        (
+            test_id, server_id, host, port, download_mbps,
+            upload_mbps, duration_sec, streams, raw_output,
+            json.dumps(metrics, ensure_ascii=False), timestamp, session_id
+        )
+    )
+
+
 def get_validation_sessions():
     connection = get_connection()
 
