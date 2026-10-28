@@ -298,13 +298,126 @@ def set_iperf3_running(running):
         if running:
             run_iperf3_button.config(state="disabled")
             abort_iperf3_button.config(state="normal")
-            iperf3_status.config(text="iperf3: Running", fg="orange")
+            iperf3_status.config(text="iperf3 server: Running on port 5201", fg="green")
         else:
             run_iperf3_button.config(state="normal")
             abort_iperf3_button.config(state="disabled")
-            iperf3_status.config(text="iperf3: Idle", fg="gray")
+            iperf3_status.config(text="iperf3 server: Stopped", fg="gray")
 
     root.after(0, update)
+
+
+# ---------------- IPERF3 SERVER CONTROL ----------------
+
+def start_iperf3_server():
+    global iperf3_process
+
+    if iperf3_running:
+        return
+
+    if not IPERF3_EXE.exists():
+        messagebox.showerror(
+            "iperf3 Not Found",
+            "Cannot find iperf3.exe at:\n" + str(IPERF3_EXE)
+        )
+        return
+
+    try:
+        existing = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
+        existing.settimeout(1)
+        try:
+            if existing.connect_ex(("127.0.0.1", 5201)) == 0:
+                messagebox.showerror(
+                    "Port Already In Use",
+                    "Something is already listening on TCP port 5201.\n\n"
+                    "Stop the existing iperf3 server first, or close the terminal\n"
+                    "where you started: .\\iperf3.exe -s -p 5201"
+                )
+                return
+        finally:
+            existing.close()
+
+        iperf3_cancel_event.clear()
+        clear_iperf3_output()
+        append_iperf3_output("Starting local iperf3 server on TCP port 5201...")
+
+        process = subprocess.Popen(
+            [str(IPERF3_EXE), "-s", "-p", "5201"],
+            cwd=str(IPERF3_EXE.parent),
+            stdin=subprocess.DEVNULL,
+            stdout=subprocess.DEVNULL,
+            stderr=subprocess.DEVNULL,
+            creationflags=NO_WINDOW
+        )
+
+        with iperf3_lock:
+            iperf3_process = process
+
+        time.sleep(0.4)
+        if process.poll() is not None:
+            with iperf3_lock:
+                iperf3_process = None
+            append_iperf3_output(
+                "iperf3 server exited immediately. Port 5201 may be unavailable."
+            )
+            set_iperf3_running(False)
+            messagebox.showerror(
+                "iperf3 Server Failed",
+                "The iperf3 server could not stay running. Check whether port 5201 is in use."
+            )
+            return
+
+        append_iperf3_output("iperf3 server is running on port 5201.")
+        append_iperf3_output("Client can connect using: iperf3.exe -c YOUR_IP -p 5201 -t 5 -P 4")
+        append_iperf3_output("Click Stop iperf3 Server to stop server.")
+        set_iperf3_running(True)
+        root.after(1000, check_iperf3_server)
+
+    except Exception as error:
+        append_iperf3_output(f"Could not start iperf3 server: {error}")
+        messagebox.showerror("iperf3 Server Error", str(error))
+
+
+def check_iperf3_server():
+    global iperf3_process
+
+    if closing:
+        return
+
+    with iperf3_lock:
+        process = iperf3_process
+
+    if process is not None and process.poll() is None:
+        root.after(1000, check_iperf3_server)
+    elif iperf3_running:
+        with iperf3_lock:
+            if iperf3_process is process:
+                iperf3_process = None
+        append_iperf3_output("iperf3 server stopped unexpectedly.")
+        set_iperf3_running(False)
+
+
+def stop_iperf3_server():
+    global iperf3_process
+
+    with iperf3_lock:
+        process = iperf3_process
+
+    if process is not None and process.poll() is None:
+        terminate_pid(process.pid)
+        try:
+            process.wait(timeout=3)
+        except Exception:
+            try:
+                process.kill()
+            except Exception:
+                pass
+
+    with iperf3_lock:
+        iperf3_process = None
+
+    append_iperf3_output("iperf3 server stopped.")
+    set_iperf3_running(False)
 
 
 # ---------------- IPERF3 PROCESS CONTROL ----------------
@@ -991,7 +1104,7 @@ for row_number, port in enumerate(SERVERS):
 
 iperf3_frame = tk.LabelFrame(
     root,
-    text="iperf3 Public Server Validation",
+    text="Local iperf3 Server (TCP 5201)",
     font=("Arial", 11, "bold"),
     padx=8,
     pady=6
@@ -1011,18 +1124,18 @@ iperf3_button_frame.pack(pady=4)
 
 run_iperf3_button = tk.Button(
     iperf3_button_frame,
-    text="Run iperf3 Test",
-    width=18,
-    command=start_iperf3_test
+    text="Start iperf3 Server",
+    width=20,
+    command=start_iperf3_server
 )
 run_iperf3_button.pack(side="left", padx=4)
 
 abort_iperf3_button = tk.Button(
     iperf3_button_frame,
-    text="Abort iperf3 Test",
-    width=18,
+    text="Stop iperf3 Server",
+    width=20,
     state="disabled",
-    command=abort_iperf3_test
+    command=stop_iperf3_server
 )
 abort_iperf3_button.pack(side="left", padx=4)
 
@@ -1035,7 +1148,7 @@ tk.Button(
 
 tk.Label(
     iperf3_frame,
-    text="Real measurements only. Public server availability is not guaranteed.",
+    text="Starts iperf3 server on port 5201. It runs until you stop it or close this frontend.",
     fg="gray",
     font=("Arial", 9)
 ).pack(pady=2)

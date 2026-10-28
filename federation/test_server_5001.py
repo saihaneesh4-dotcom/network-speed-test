@@ -1,213 +1,201 @@
 import socket
-import time
 import threading
-
+import time
 
 HOST = "0.0.0.0"
 PORT = 5001
 BUFFER_SIZE = 65536
+BARRIER_TIMEOUT = 15
+
+sessions = {}
+sessions_lock = threading.Lock()
+
+
+def read_line(conn, initial=b""):
+    buffer = initial
+    while b"\n" not in buffer:
+        data = conn.recv(4096)
+        if not data:
+            raise ConnectionError("Connection closed")
+        buffer += data
+    line, remaining = buffer.split(b"\n", 1)
+    return line.decode().strip(), remaining
+
+
+def send_frame(conn, kind, payload):
+    conn.sendall(f"{kind} {len(payload)}\n".encode() + payload)
 
 
 def handle_client(conn, addr):
-
-    print()
-    print("[CONNECTION]", addr)
+    session = None
+    session_id = None
 
     try:
+        conn.settimeout(30)
+        line, pending = read_line(conn)
+        parts = line.split()
 
-        while True:
+        if parts == ["PROBE"]:
+            conn.sendall(b"PROBE_ACK\n")
+            return
 
-            command = conn.recv(1024).decode().strip()
+        # TEST direction session_id duration ramp_up streams index
+        if len(parts) != 7 or parts[0] != "TEST":
+            conn.sendall(b"INVALID_COMMAND\n")
+            return
 
-            if not command:
-                break
+        _, direction, session_id, duration_s, ramp_s, streams_s, index_s = parts
 
-            parts = command.split()
+        duration = float(duration_s)
+        ramp = float(ramp_s)
+        streams = int(streams_s)
+        index = int(index_s)
 
-            # ---------------- PROBE ----------------
+        if (
+            direction not in ("UPLOAD", "DOWNLOAD")
+            or duration <= 0
+            or ramp < 0
+            or streams < 1
+            or not 0 <= index < streams
+        ):
+            conn.sendall(b"INVALID_COMMAND\n")
+            return
 
-            if command == "PROBE":
+        with sessions_lock:
+            session = sessions.get(session_id)
 
-                conn.sendall(b"PROBE_ACK\n")
+            if session is None:
+                session = {
+                    "direction": direction,
+                    "duration": duration,
+                    "ramp": ramp,
+                    "expected": streams,
+                    "connections": {},
+                    "condition": threading.Condition(),
+                    "start": None,
+                    "failed": False,
+                    "finished": 0,
+                }
+                sessions[session_id] = session
 
-                print("[PROBE] Acknowledged")
+            if (
+                session["direction"] != direction
+                or session["duration"] != duration
+                or session["ramp"] != ramp
+                or session["expected"] != streams
+                or index in session["connections"]
+            ):
+                conn.sendall(b"INVALID_SESSION\n")
+                return
 
-                continue
+            session["connections"][index] = conn
 
-            # ---------------- VALIDATE ----------------
+        condition = session["condition"]
 
-            if len(parts) != 3:
+        with condition:
+            condition.notify_all()
+            deadline = time.monotonic() + BARRIER_TIMEOUT
 
-                conn.sendall(b"INVALID_COMMAND\n")
+            while len(session["connections"]) < streams:
+                remaining = deadline - time.monotonic()
 
-                continue
+                if remaining <= 0:
+                    session["failed"] = True
+                    condition.notify_all()
+                    break
 
-            command_type = parts[0]
+                condition.wait(remaining)
 
-            try:
+            if session["failed"]:
+                conn.sendall(b"SESSION_FAILED\n")
+                return
 
-                duration = int(parts[1])
-                streams = int(parts[2])
+            if session["start"] is None:
+                # Shared server clock, with a short lead-in.
+                session["start"] = time.perf_counter() + 1.0
 
-            except ValueError:
+            start = session["start"]
 
-                conn.sendall(b"INVALID_COMMAND\n")
+        conn.sendall(b"GO\n")
 
-                continue
+        measure_start = start + ramp
+        measure_end = measure_start + duration
+        payload = b"x" * BUFFER_SIZE
 
-            if duration <= 0 or streams <= 0:
+        if direction == "UPLOAD":
+            received_bytes = 0
 
-                conn.sendall(b"INVALID_COMMAND\n")
+            while time.perf_counter() < measure_end:
+                now = time.perf_counter()
 
-                continue
+                if now < measure_start:
+                    timeout = measure_start - now
+                else:
+                    timeout = measure_end - now
 
-            # ---------------- DOWNLOAD ----------------
-
-            if command_type == "DOWNLOAD":
-
-                print("[DOWNLOAD] Started")
-                print("  Duration :", duration, "sec")
-                print("  Stream   :", streams)
-
-                conn.sendall(b"READY\n")
-
-                data = b"x" * BUFFER_SIZE
-
-                total_bytes = 0
-
-                start = time.perf_counter()
-
-                try:
-
-                    while time.perf_counter() - start < duration:
-
-                        conn.sendall(data)
-
-                        total_bytes += len(data)
-
-                except (ConnectionResetError, BrokenPipeError):
-
-                    print("[DOWNLOAD] Client disconnected")
-
-                elapsed = time.perf_counter() - start
-
-                print()
-                print("[DOWNLOAD] Completed")
-                print("  Bytes      :", total_bytes)
-                print("  Time       :", round(elapsed, 3), "sec")
-
-                if elapsed > 0:
-
-                    speed = (
-                        total_bytes * 8
-                    ) / elapsed / 1_000_000
-
-                    print(
-                        "  Throughput :",
-                        round(speed, 2),
-                        "Mbps"
-                    )
-
-                break
-
-            # ---------------- UPLOAD ----------------
-
-            elif command_type == "UPLOAD":
-
-                print("[UPLOAD] Started")
-                print("  Duration :", duration, "sec")
-                print("  Stream   :", streams)
-
-                conn.sendall(b"READY\n")
-
-                total_bytes = 0
-
-                start = time.perf_counter()
+                conn.settimeout(max(0.001, min(timeout, 1.0)))
 
                 try:
+                    data = conn.recv(BUFFER_SIZE)
+                except socket.timeout:
+                    continue
 
-                    while time.perf_counter() - start < duration:
+                if not data:
+                    break
 
-                        data = conn.recv(BUFFER_SIZE)
+                received_at = time.perf_counter()
 
-                        if not data:
-                            break
+                if measure_start <= received_at < measure_end:
+                    received_bytes += len(data)
 
-                        total_bytes += len(data)
+            conn.sendall(f"RESULT {received_bytes}\n".encode())
+            print(f"[UPLOAD {session_id}:{index}] {received_bytes} bytes")
 
-                except ConnectionResetError:
+        else:
+            # W = warm-up; D = measured download data.
+            while time.perf_counter() < measure_start:
+                send_frame(conn, "W", payload)
 
-                    print("[UPLOAD] Client disconnected")
+            while time.perf_counter() < measure_end:
+                send_frame(conn, "D", payload)
 
-                elapsed = time.perf_counter() - start
+            conn.sendall(b"END 0\n")
+            print(f"[DOWNLOAD {session_id}:{index}] Finished")
 
-                print()
-                print("[UPLOAD] Completed")
-                print("  Bytes      :", total_bytes)
-                print("  Time       :", round(elapsed, 3), "sec")
-
-                if elapsed > 0:
-
-                    speed = (
-                        total_bytes * 8
-                    ) / elapsed / 1_000_000
-
-                    print(
-                        "  Throughput :",
-                        round(speed, 2),
-                        "Mbps"
-                    )
-
-                break
-
-            # ---------------- INVALID ----------------
-
-            else:
-
-                conn.sendall(b"INVALID_COMMAND\n")
-
-    except Exception as e:
-
-        print("[ERROR]", e)
+    except (OSError, ValueError, ConnectionError) as error:
+        print(f"[ERROR] {addr}: {error}")
 
     finally:
+        if session is not None:
+            condition = session["condition"]
+
+            with condition:
+                session["finished"] += 1
+
+                if session["finished"] >= session["expected"]:
+                    with sessions_lock:
+                        if sessions.get(session_id) is session:
+                            del sessions[session_id]
 
         conn.close()
 
-        print("[CONNECTION] Closed")
+
+def main():
+    with socket.socket(socket.AF_INET, socket.SOCK_STREAM) as server:
+        server.setsockopt(socket.SOL_SOCKET, socket.SO_REUSEADDR, 1)
+        server.bind((HOST, PORT))
+        server.listen()
+
+        print(f"Mini-Ookla server listening on {HOST}:{PORT}")
+
+        while True:
+            conn, addr = server.accept()
+            threading.Thread(
+                target=handle_client,
+                args=(conn, addr),
+                daemon=True
+            ).start()
 
 
-# ================= SERVER =================
-
-server = socket.socket(
-    socket.AF_INET,
-    socket.SOCK_STREAM
-)
-
-server.setsockopt(
-    socket.SOL_SOCKET,
-    socket.SO_REUSEADDR,
-    1
-)
-
-server.bind((HOST, PORT))
-server.listen()
-
-print()
-print("========================================")
-print("   CONCURRENT MEASUREMENT SERVER")
-print("========================================")
-print("Host:", HOST)
-print("Port:", PORT)
-print()
-
-while True:
-
-    conn, addr = server.accept()
-
-    thread = threading.Thread(
-        target=handle_client,
-        args=(conn, addr)
-    )
-
-    thread.start()
+if __name__ == "__main__":
+    main()
