@@ -1,4 +1,4 @@
-from federation.server_discoverer import discover_servers
+from federation.server_discovery import discover_servers
 from federation.server_probe import probe_server
 
 def select_best_server():
