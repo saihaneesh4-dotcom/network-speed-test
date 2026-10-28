@@ -48,7 +48,7 @@ result = {
 try:
     print("Sending results")
     response = requests.post(
-        "http://10.56.66.133:5000/results",
+        "http://10.113.250.133:5000/results",
         json=result,
         timeout=5
     )
