@@ -4,13 +4,21 @@ import json
 DISCOVERY_PORT = 6100
 IPERF3_PORT = 5201
 
+# Shared measurement configuration
+MEASURED_DURATION_SEC = 5
+RAMP_UP_SEC = 2
+PARALLEL_STREAMS = 4
+
 
 def main():
     with socket.socket(socket.AF_INET, socket.SOCK_DGRAM) as sock:
         sock.setsockopt(socket.SOL_SOCKET, socket.SO_REUSEADDR, 1)
         sock.bind(("0.0.0.0", DISCOVERY_PORT))
 
-        print(f"iperf3 discovery responder listening on UDP {DISCOVERY_PORT}")
+        print(
+            f"iperf3 discovery responder listening on "
+            f"UDP {DISCOVERY_PORT}"
+        )
 
         while True:
             try:
@@ -21,7 +29,10 @@ def main():
 
                 response = {
                     "service": "iperf3",
-                    "port": IPERF3_PORT
+                    "port": IPERF3_PORT,
+                    "duration_sec": MEASURED_DURATION_SEC,
+                    "ramp_up_sec": RAMP_UP_SEC,
+                    "streams": PARALLEL_STREAMS
                 }
 
                 sock.sendto(

@@ -18,6 +18,9 @@ PROJECT_ROOT = Path(__file__).resolve().parent.parent
 
 API_FILE = PROJECT_ROOT / "backend" / "api.py"
 RESULTS_DASHBOARD = PROJECT_ROOT / "federation" / "results_dashboard.py"
+IPERF3_DISCOVERY_SERVER = PROJECT_ROOT / "federation" / "iperf3_discovery_server.py"
+if not IPERF3_DISCOVERY_SERVER.exists():
+    IPERF3_DISCOVERY_SERVER = PROJECT_ROOT / "federation" / "iperf3_discovery_server"
 
 IPERF3_EXE = Path(
     r"C:\Users\P Santosh\Downloads\iperf-3.22-win64\iperf3.exe"
@@ -66,7 +69,8 @@ running_processes = {}
 closing = False
 
 iperf3_running = False
-iperf3_process = None
+iperf3_process = None  # Active iperf3 client/test process, if any
+iperf3_server_process = None  # Persistent local iperf3 server process
 iperf3_lock = threading.Lock()
 iperf3_cancel_event = threading.Event()
 
@@ -310,7 +314,7 @@ def set_iperf3_running(running):
 # ---------------- IPERF3 SERVER CONTROL ----------------
 
 def start_iperf3_server():
-    global iperf3_process
+    global iperf3_server_process
 
     if iperf3_running:
         return
@@ -339,6 +343,13 @@ def start_iperf3_server():
 
         iperf3_cancel_event.clear()
         clear_iperf3_output()
+        append_iperf3_output("Starting iperf3 discovery responder on UDP port 6100...")
+
+        if not start_process("iperf3_discovery", IPERF3_DISCOVERY_SERVER):
+            append_iperf3_output("Could not start iperf3 discovery responder. iperf3 server was not started.")
+            return
+
+        append_iperf3_output("iperf3 discovery responder is running.")
         append_iperf3_output("Starting local iperf3 server on TCP port 5201...")
 
         process = subprocess.Popen(
@@ -351,12 +362,13 @@ def start_iperf3_server():
         )
 
         with iperf3_lock:
-            iperf3_process = process
+            iperf3_server_process = process
 
         time.sleep(0.4)
         if process.poll() is not None:
             with iperf3_lock:
-                iperf3_process = None
+                iperf3_server_process = None
+            stop_process("iperf3_discovery")
             append_iperf3_output(
                 "iperf3 server exited immediately. Port 5201 may be unavailable."
             )
@@ -368,40 +380,40 @@ def start_iperf3_server():
             return
 
         append_iperf3_output("iperf3 server is running on port 5201.")
-        append_iperf3_output("Client can connect using: iperf3.exe -c YOUR_IP -p 5201 -t 5 -P 4")
-        append_iperf3_output("Click Stop iperf3 Server to stop server.")
+        append_iperf3_output("The server has no automatic time limit. Click Stop iperf3 Server to stop it.")
         set_iperf3_running(True)
         root.after(1000, check_iperf3_server)
 
     except Exception as error:
+        stop_process("iperf3_discovery")
         append_iperf3_output(f"Could not start iperf3 server: {error}")
         messagebox.showerror("iperf3 Server Error", str(error))
 
 
 def check_iperf3_server():
-    global iperf3_process
+    global iperf3_server_process
 
     if closing:
         return
 
     with iperf3_lock:
-        process = iperf3_process
+        process = iperf3_server_process
 
     if process is not None and process.poll() is None:
         root.after(1000, check_iperf3_server)
     elif iperf3_running:
         with iperf3_lock:
-            if iperf3_process is process:
-                iperf3_process = None
+            if iperf3_server_process is process:
+                iperf3_server_process = None
         append_iperf3_output("iperf3 server stopped unexpectedly.")
         set_iperf3_running(False)
 
 
 def stop_iperf3_server():
-    global iperf3_process
+    global iperf3_server_process
 
     with iperf3_lock:
-        process = iperf3_process
+        process = iperf3_server_process
 
     if process is not None and process.poll() is None:
         terminate_pid(process.pid)
@@ -414,9 +426,10 @@ def stop_iperf3_server():
                 pass
 
     with iperf3_lock:
-        iperf3_process = None
+        iperf3_server_process = None
 
-    append_iperf3_output("iperf3 server stopped.")
+    stop_process("iperf3_discovery")
+    append_iperf3_output("iperf3 server and discovery responder stopped.")
     set_iperf3_running(False)
 
 
@@ -922,7 +935,7 @@ def stop_server(port):
 # ---------------- AUTOMATIC SHUTDOWN ----------------
 
 def close_frontend():
-    global closing
+    global closing, iperf3_process, iperf3_server_process
 
     if closing:
         return
@@ -930,19 +943,33 @@ def close_frontend():
     closing = True
     iperf3_cancel_event.set()
 
+    # Stop both the active iperf3 client test and the persistent local server.
     with iperf3_lock:
-        process = iperf3_process
+        test_process = iperf3_process
+        server_process = iperf3_server_process
+        iperf3_process = None
+        iperf3_server_process = None
 
-    if process is not None and process.poll() is None:
-        terminate_pid(process.pid)
+    for process in (test_process, server_process):
+        if process is not None and process.poll() is None:
+            terminate_pid(process.pid)
+            try:
+                process.wait(timeout=3)
+            except Exception:
+                try:
+                    process.kill()
+                    process.wait(timeout=2)
+                except Exception:
+                    pass
 
     for key in list(running_processes.keys()):
         stop_process(key)
 
-    for port in [5000, 5001, 5002, 5003]:
+    # Also stop any owned listeners as a fallback during shutdown.
+    for port in [5000, 5001, 5002, 5003, 5201]:
         stop_port(port, "tcp")
 
-    for port in [6000, 6001, 6002]:
+    for port in [6000, 6001, 6002, 6100]:
         stop_port(port, "udp")
 
     root.destroy()
@@ -1148,7 +1175,7 @@ tk.Button(
 
 tk.Label(
     iperf3_frame,
-    text="Starts iperf3 server on port 5201. It runs until you stop it or close this frontend.",
+    text="Starts iperf3 server on TCP 5201 and discovery responder on UDP 6100. Both stop when you stop them or close this frontend.",
     fg="gray",
     font=("Arial", 9)
 ).pack(pady=2)
