@@ -284,6 +284,13 @@ tbody tr:last-child td { border-bottom: 0; }
 .server-bar-line { display: grid; grid-template-columns: 14px minmax(0, 1fr) 66px; align-items: center; gap: 8px; }
 .server-bar-caption { color: var(--muted); font-size: 12px; }
 .server-bar { height: 100%; min-width: 0; border-radius: inherit; transition: width 0.3s ease; }
+.server-bar.graph-download {
+  background: var(--cyan);
+}
+
+.server-bar.graph-upload {
+  background: var(--purple);
+}
 .server-bar-line b { text-align: right; color: var(--text); font-size: 11px; font-variant-numeric: tabular-nums; }
 .distribution-stem { stroke: #31506b; stroke-width: 1.5; }
 .stability-summary { display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); gap: 8px; margin-top: 16px; }
@@ -296,4 +303,330 @@ tbody tr:last-child td { border-bottom: 0; }
 @media (max-width: 520px) {
   .quality-metrics { grid-template-columns: 1fr; }
   .stability-summary { grid-template-columns: 1fr; }
+}
+
+/* Validation sessions */
+.validation-sessions-panel,
+.validation-detail-panel {
+  margin-bottom: 18px;
+  overflow: hidden;
+}
+
+.validation-status {
+  display: inline-flex;
+  align-items: center;
+  width: fit-content;
+  padding: 4px 7px;
+  border: 1px solid var(--border);
+  border-radius: 6px;
+  font-size: 10px;
+  text-transform: capitalize;
+  white-space: nowrap;
+}
+
+.status-completed {
+  color: #42e0b5;
+  border-color: rgba(66, 224, 181, 0.3);
+  background: rgba(66, 224, 181, 0.07);
+}
+
+.status-running {
+  color: #8cb7ff;
+  border-color: rgba(140, 183, 255, 0.3);
+  background: rgba(140, 183, 255, 0.07);
+}
+
+.status-partial {
+  color: #ffc875;
+  border-color: rgba(255, 200, 117, 0.3);
+  background: rgba(255, 200, 117, 0.07);
+}
+
+.status-failed {
+  color: #ff8d9b;
+  border-color: rgba(255, 141, 155, 0.3);
+  background: rgba(255, 141, 155, 0.07);
+}
+
+.status-pending,
+.status-unknown {
+  color: var(--muted);
+}
+
+.validation-session-select {
+  padding: 0;
+  border: 0;
+  background: transparent;
+  color: var(--cyan);
+  font: inherit;
+  cursor: pointer;
+  text-align: left;
+}
+
+.validation-session-select:hover {
+  text-decoration: underline;
+}
+
+.validation-selected-row {
+  background: rgba(13, 235, 209, 0.045);
+}
+
+.validation-test-grid {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 16px;
+  padding: 20px;
+}
+
+.validation-test-card {
+  min-width: 0;
+  padding: 17px;
+  border: 1px solid var(--border);
+  border-radius: 10px;
+  background: rgba(8, 22, 37, 0.65);
+}
+
+.validation-test-card h3 {
+  margin: 7px 0 12px;
+  font-family: 'Space Grotesk', sans-serif;
+  font-size: 17px;
+}
+
+.validation-test-metrics {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 14px;
+  margin-top: 18px;
+}
+
+.validation-test-metrics > div {
+  min-width: 0;
+}
+
+.validation-test-metrics span {
+  display: block;
+  color: var(--muted);
+  font-size: 10px;
+}
+
+.validation-test-metrics strong {
+  display: block;
+  overflow-wrap: anywhere;
+  margin-top: 6px;
+  color: var(--text);
+  font-size: 13px;
+  font-variant-numeric: tabular-nums;
+}
+
+.validation-error {
+  margin: 12px 0 0;
+  color: #ff8d9b;
+  font-size: 11px;
+  line-height: 1.6;
+  overflow-wrap: anywhere;
+}
+
+.validation-muted {
+  color: var(--muted);
+  font-size: 11px;
+  line-height: 1.6;
+}
+
+.validation-comparison {
+  padding: 0 20px 20px;
+}
+
+.validation-comparison .panel-heading {
+  padding: 10px 0 14px;
+}
+
+.validation-comparison .graph-footnote {
+  line-height: 1.7;
+}
+
+@media (max-width: 700px) {
+  .validation-test-grid {
+    grid-template-columns: 1fr;
+    padding: 13px;
+  }
+
+  .validation-comparison {
+    padding: 0 13px 15px;
+  }
+
+  .validation-test-metrics {
+    gap: 12px;
+  }
+}
+
+
+.throughput-charts-grid {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 16px;
+  margin: 24px 0;
+}
+
+.throughput-chart-card {
+  min-width: 0;
+  padding: 20px;
+  background: #091625;
+  border: 1px solid #1c344b;
+  border-radius: 12px;
+}
+
+.throughput-chart-card h3 {
+  margin: 0 0 6px;
+  font-size: 16px;
+  color: #edf6ff;
+}
+
+.throughput-chart-subtitle {
+  margin: 0 0 20px;
+  font-size: 12px;
+  color: #8faac8;
+}
+
+.vertical-chart {
+  display: grid;
+  grid-template-columns: 34px minmax(0, 1fr);
+  gap: 8px;
+  height: 240px;
+}
+
+.vertical-chart-axis {
+  display: flex;
+  flex-direction: column;
+  justify-content: space-between;
+  align-items: flex-end;
+  padding-bottom: 27px;
+  color: #8faac8;
+  font-size: 10px;
+}
+
+.vertical-chart-plot {
+  position: relative;
+  min-width: 0;
+  height: 100%;
+  border-bottom: 1px solid #36506a;
+}
+
+.vertical-chart-gridline {
+  position: absolute;
+  left: 0;
+  right: 0;
+  border-top: 1px dashed #294057;
+  pointer-events: none;
+}
+
+.vertical-chart-groups {
+  position: absolute;
+  inset: 0 0 0;
+  display: flex;
+  justify-content: space-evenly;
+  gap: 20px;
+}
+
+.vertical-chart-item {
+  display: flex;
+  flex-direction: column;
+  justify-content: flex-end;
+  align-items: center;
+  width: 40%;
+  min-width: 0;
+  z-index: 1;
+}
+
+.vertical-chart-bar-area {
+  height: calc(100% - 27px);
+  width: 100%;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: flex-end;
+  gap: 5px;
+}
+
+.vertical-chart-bar-area strong {
+  color: #edf6ff;
+  font-size: 11px;
+  white-space: nowrap;
+}
+
+.vertical-chart-bar {
+  width: min(64px, 72%);
+  min-height: 2px;
+  border-radius: 5px 5px 0 0;
+}
+
+.mini-bar {
+  background: #20cfc3;
+}
+
+.iperf-bar {
+  background: #559cff;
+}
+
+.vertical-chart-item > span {
+  height: 27px;
+  padding-top: 8px;
+  color: #a9c4e2;
+  font-size: 11px;
+  text-align: center;
+  white-space: nowrap;
+}
+
+@media (max-width: 850px) {
+  .throughput-charts-grid {
+    grid-template-columns: 1fr;
+  }
+}
+
+/* Larger bars for validation-session average comparisons */
+.validation-averages .throughput-charts-grid {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 20px;
+}
+
+.validation-averages .throughput-chart-card,
+.validation-averages .comparison-card {
+  min-width: 0;
+}
+
+.validation-bar-line {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) 76px;
+  align-items: center;
+  gap: 14px;
+  margin: 16px 0;
+}
+
+.validation-bar-line .server-bar-track {
+  height: 24px;
+  overflow: hidden;
+  border-radius: 6px;
+  background: #172b40;
+}
+
+.validation-bar-line .server-bar {
+  height: 100%;
+  min-width: 4px;
+  border-radius: 6px;
+}
+
+.validation-bar-line b {
+  text-align: right;
+  font-size: 14px;
+  font-variant-numeric: tabular-nums;
+}
+
+.validation-averages .server-chart-row {
+  padding: 12px 0;
+}
+
+@media (max-width: 760px) {
+  .validation-averages .throughput-charts-grid {
+    grid-template-columns: 1fr;
+  }
 }

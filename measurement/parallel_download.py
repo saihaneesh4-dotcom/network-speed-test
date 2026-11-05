@@ -1,79 +1,112 @@
 
 import socket
-import time
 import threading
+import uuid
 
 
-def download_stream(host, port, duration, ramp_up_sec, start_event):
+def read_line(conn, initial=b""):
+    buffer = initial
+
+    while b"\n" not in buffer:
+        data = conn.recv(4096)
+        if not data:
+            raise ConnectionError("Connection closed")
+        buffer += data
+
+    line, remaining = buffer.split(b"\n", 1)
+    return line.decode().strip(), remaining
+
+
+def recv_exact(conn, size, initial=b""):
+    buffer = initial
+
+    while len(buffer) < size:
+        data = conn.recv(min(65536, size - len(buffer)))
+        if not data:
+            raise ConnectionError("Connection closed during frame")
+        buffer += data
+
+    return buffer[:size], buffer[size:]
+
+
+def download_stream(
+    host, port, duration, ramp_up_sec,
+    streams, index, session_id, results
+):
     client = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
-    client.settimeout(duration + ramp_up_sec + 5)
-
+    client.settimeout(duration + ramp_up_sec + 30)
     measured_bytes = 0
 
     try:
         client.connect((host, port))
-        total_duration = duration + ramp_up_sec
-        client.sendall(f"DOWNLOAD {total_duration} 1\n".encode())
 
-        buffer = b""
+        command = (
+            f"TEST DOWNLOAD {session_id} {duration} "
+            f"{ramp_up_sec} {streams} {index}\n"
+        )
+        client.sendall(command.encode())
 
-        while b"\n" not in buffer:
-            data = client.recv(1024)
-            if not data:
-                return 0
-            buffer += data
+        line, pending = read_line(client)
 
-        response, remaining_data = buffer.split(b"\n", 1)
+        if line != "GO":
+            raise RuntimeError(f"Server response: {line}")
 
-        if response.decode().strip() != "READY":
-            return 0
+        while True:
+            line, pending = read_line(client, pending)
+            parts = line.split()
 
-        start_event.wait()
-        start_time = time.perf_counter()
-        end_time = start_time + duration
+            if len(parts) != 2:
+                raise RuntimeError(f"Invalid frame header: {line}")
 
-        while time.perf_counter() < end_time:
-            data = client.recv(65536)
+            kind, length_text = parts
+            length = int(length_text)
 
-            if not data:
+            if kind == "END":
                 break
 
-            measured_bytes += len(data)
+            if kind not in ("W", "D") or length < 0:
+                raise RuntimeError(f"Invalid frame: {line}")
 
-        return measured_bytes
+            data, pending = recv_exact(client, length, pending)
 
-    except (OSError, socket.timeout):
-        return 0
+            if kind == "D":
+                measured_bytes += len(data)
+
+        results[index] = measured_bytes
+
+    except (OSError, ValueError, RuntimeError, ConnectionError) as error:
+        print(f"[DOWNLOAD {index}] Failed: {error}")
+        results[index] = 0
 
     finally:
         client.close()
 
 
 def measure_parallel_download(
-    host,
-    port,
-    duration=5,
-    streams=4,
-    ramp_up_sec=2
+    host, port, duration=5, streams=4, ramp_up_sec=2
 ):
+    session_id = uuid.uuid4().hex
     results = [0] * streams
     threads = []
-    start_event = threading.Event()
 
-    def run_stream(index):
-        results[index] = download_stream(
-            host, port, duration, ramp_up_sec, start_event
+    for index in range(streams):
+        thread = threading.Thread(
+            target=download_stream,
+            args=(
+                host, port, duration, ramp_up_sec,
+                streams, index, session_id, results
+            )
         )
-
-    for i in range(streams):
-        thread = threading.Thread(target=run_stream, args=(i,))
         threads.append(thread)
         thread.start()
-
-    start_event.set()
 
     for thread in threads:
         thread.join()
 
     total_bytes = sum(results)
-    return total_bytes * 8 / duration / 1_000_000
+    speed = total_bytes * 8 / duration / 1_000_000
+
+    print(f"[DOWNLOAD] Per-stream bytes: {results}")
+    print(f"[DOWNLOAD] Total: {speed:.2f} Mbps")
+
+    return speed

@@ -1,0 +1,15 @@
+{
+    "result":  {
+                   "client_id":  "aarav-mac",
+                   "server_ip":  "10.56.66.133",
+                   "trial_id":  1,
+                   "duration_sec":  5,
+                   "streams":  4,
+                   "upload_mbps":  167,
+                   "download_mbps":  143.5,
+                   "timestamp":  "2026-10-19T18:00:00+05:30",
+                   "server_port":  5201,
+                   "omit_sec":  2,
+                   "protocol":  "TCP"
+               }
+}

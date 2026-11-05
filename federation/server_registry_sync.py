@@ -21,7 +21,7 @@ SERVERS_FILE = Path(__file__).resolve().parent / "servers.json"
 
 def load_servers():
     """Load the configured servers from servers.json."""
-    with open(SERVERS_FILE, "r", encoding="utf-8") as file:
+    with open(SERVERS_FILE, "r", encoding="utf-8-sig") as file:
         data = json.load(file)
 
     return data.get("servers", [])

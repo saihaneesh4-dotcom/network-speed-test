@@ -3,9 +3,9 @@ import './App.css'
 import { sampleResults } from "./sampledata";
 
 const initialServers = [
-  { id: 'server_01', name: 'Server A', host: '10.56.66.133:5001', status: 'Online', latency: '10.6 ms' },
-  { id: 'server_02', name: 'Server B', host: '10.140.251.133:5002', status: 'Offline', latency: '—' },
-  { id: 'server_03', name: 'Server C', host: '10.140.251.133:5003', status: 'Offline', latency: '—' },
+  { id: 'server_01', name: 'Server A', host: '10.149.250.133:5001', status: 'Unknown', latency: '—' },
+  { id: 'server_02', name: 'Server B', host: '10.149.250.133:5002', status: 'Unknown', latency: '—' },
+  { id: 'server_03', name: 'Server C', host: '10.149.250.133:5003', status: 'Unknown', latency: '—' },
 ]
 
 
@@ -13,27 +13,30 @@ const initialServers = [
 
 const navigation = [
   {
+    label: 'Validation Sessions',
+    icon: '<>',
+    sub: 'Compare linked Mini-Ookla & iperf3 tests',
+  },
+  {
     label: 'Network Visualiser',
-    icon: '⌘',
+    icon: '[]',
     sub: 'Latest test & network overview',
   },
   {
     label: 'Performance Comparison',
-    icon: '↗',
+    icon: '<>',
     sub: 'Compare network measurements',
   },
   {
     label: 'iperf3 Performance',
-    icon: '↗',
+    icon: '>>',
     sub: 'TCP throughput & measurement history',
   },
-
-{
-  label: 'Measurement History',
-  icon: '◷',
-  sub: 'Browse saved speed tests',
-},
-
+  {
+    label: 'Measurement History',
+    icon: '##',
+    sub: 'Browse saved speed tests',
+  },
 ]
 
 
@@ -53,6 +56,128 @@ function MetricCard({ icon, label, value, unit, tone, foot }) {
 
 
 
+function ThroughputComparisonChart({ title, history = [] }) {
+  const width = 700
+  const height = 250
+  const left = 55
+  const right = 18
+  const top = 20
+  const bottom = 48
+  const plotWidth = width - left - right
+  const plotHeight = height - top - bottom
+
+  const points = history.map((item, index) => ({
+    ...item,
+    index,
+    mini: item.mini == null || item.mini === '' ? null : Number(item.mini),
+    iperf: item.iperf == null || item.iperf === '' ? null : Number(item.iperf),
+  })).filter(item =>
+    (item.mini !== null && Number.isFinite(item.mini) && item.mini >= 0) ||
+    (item.iperf !== null && Number.isFinite(item.iperf) && item.iperf >= 0)
+  )
+
+  const maxValue = Math.max(
+    1,
+    ...points.flatMap(p => [p.mini, p.iperf].filter(v => v !== null && Number.isFinite(v)))
+  )
+  const axisMax = Math.ceil(maxValue / 10) * 10 || 10
+  const x = index => left + (points.length <= 1 ? plotWidth / 2 : index * plotWidth / (points.length - 1))
+  const y = value => top + plotHeight - (value / axisMax) * plotHeight
+
+  const makePath = key => {
+    let path = ''
+    let drawing = false
+    points.forEach((point, index) => {
+      const value = point[key]
+      if (value === null || !Number.isFinite(value) || value < 0) {
+        drawing = false
+        return
+      }
+      path += `${drawing ? ' L' : ' M'} ${x(index)} ${y(value)}`
+      drawing = true
+    })
+    return path
+  }
+
+  return (
+    <article className="throughput-chart-card">
+      <h3>{title}</h3>
+      <p className="throughput-chart-subtitle">
+        Historical throughput ? Mbps ? {points.length} completed sessions with data
+      </p>
+
+      {points.length === 0 ? (
+        <p>No completed-session measurements are available yet.</p>
+      ) : (
+        <>
+          <div style={{ width: '100%', overflowX: 'auto' }}>
+            <svg
+              viewBox={`0 0 ${width} ${height}`}
+              role="img"
+              aria-label={`${title}: historical Mini-Ookla and iperf3 throughput`}
+              style={{ width: '100%', minWidth: points.length > 12 ? '650px' : '0', display: 'block' }}
+            >
+              {[0, 1, 2, 3, 4].map(i => {
+                const value = axisMax * i / 4
+                const yy = y(value)
+                return (
+                  <g key={i}>
+                    <line x1={left} y1={yy} x2={width - right} y2={yy}
+                      stroke="currentColor" strokeOpacity="0.15" />
+                    <text x={left - 9} y={yy + 4} textAnchor="end"
+                      fill="currentColor" fontSize="10">{value.toFixed(0)}</text>
+                  </g>
+                )
+              })}
+
+              {points.map((point, index) => (
+                <g key={point.session_id || index}>
+                  <text
+                    x={x(index)}
+                    y={height - 23}
+                    textAnchor="end"
+                    transform={`rotate(-35 ${x(index)} ${height - 23})`}
+                    fill="currentColor"
+                    fontSize="9"
+                  >
+                    {index + 1}
+                  </text>
+                  <title>{`Session ${index + 1}: ${point.session_id || ''}`}</title>
+                </g>
+              ))}
+
+              <path d={makePath('mini')} fill="none" stroke="#19d3c5"
+                strokeWidth="2.5" strokeLinejoin="round" strokeLinecap="round" />
+              <path d={makePath('iperf')} fill="none" stroke="#7c9cff"
+                strokeWidth="2.5" strokeLinejoin="round" strokeLinecap="round" />
+
+              {points.map((point, index) => (
+                <g key={`dots-${point.session_id || index}`}>
+                  {point.mini !== null && Number.isFinite(point.mini) && point.mini >= 0 && (
+                    <circle cx={x(index)} cy={y(point.mini)} r="3.5" fill="#19d3c5">
+                      <title>{`Session ${index + 1} ? Mini-Ookla: ${point.mini.toFixed(2)} Mbps`}</title>
+                    </circle>
+                  )}
+                  {point.iperf !== null && Number.isFinite(point.iperf) && point.iperf >= 0 && (
+                    <circle cx={x(index)} cy={y(point.iperf)} r="3.5" fill="#7c9cff">
+                      <title>{`Session ${index + 1} ? iperf3: ${point.iperf.toFixed(2)} Mbps`}</title>
+                    </circle>
+                  )}
+                </g>
+              ))}
+              <text x={left + plotWidth / 2} y={height - 2}
+                textAnchor="middle" fill="currentColor" fontSize="10">Completed session order (oldest ? newest)</text>
+            </svg>
+          </div>
+          <div style={{ display: 'flex', justifyContent: 'center', gap: '22px', fontSize: '12px', marginTop: '8px' }}>
+            <span><span style={{ color: '#19d3c5' }}>?</span> Mini-Ookla</span>
+            <span><span style={{ color: '#7c9cff' }}>?</span> iperf3</span>
+          </div>
+        </>
+      )}
+    </article>
+  )
+}
 
 
 function LineChart({ history = [] }) {
@@ -483,8 +608,8 @@ const stabilityStdDev = stabilityValues.length
                 </svg>
               </div>
               <div className="comparison-legend">
-                <span className="legend-download">● Download</span>
-                <span className="legend-upload">● Upload</span>
+                <span className="legend-download">↓ Download</span>
+                <span className="legend-upload">↑ Upload</span>
               </div>
             </>
           )}
@@ -518,7 +643,7 @@ const stabilityStdDev = stabilityValues.length
             ))}
           </div>
           <div className="comparison-legend">
-            <span className="legend-latency">● Latency scale</span>
+            <span className="legend-latency">~ Latency scale</span>
             <span>Jitter and loss shown numerically</span>
           </div>
         </article>
@@ -564,8 +689,8 @@ const stabilityStdDev = stabilityValues.length
             ))}
           </div>
           <div className="comparison-legend">
-            <span className="legend-download">■ Download</span>
-            <span className="legend-upload">■ Upload</span>
+            <span className="legend-download">↓ Download</span>
+            <span className="legend-upload">↑ Upload</span>
           </div>
         </article>
 
@@ -654,7 +779,197 @@ const stabilityStdDev = stabilityValues.length
           )}
         </article>
       </section>
+      <ValidationAverageCharts />
     </div>
+  );
+}
+
+
+function ValidationAverageCharts() {
+  const [averages, setAverages] = useState(null);
+  const [loading, setLoading] = useState(true);
+  const [error, setError] = useState('');
+
+  useEffect(() => {
+    let cancelled = false;
+
+    async function loadAverages() {
+      setLoading(true);
+      setError('');
+
+      try {
+        const response = await fetch('/api/validation/sessions');
+        if (!response.ok) {
+          throw new Error(`Session API returned HTTP ${response.status}`);
+        }
+
+        const payload = await response.json();
+        const sessions = Array.isArray(payload)
+          ? payload
+          : payload.sessions;
+
+        if (!Array.isArray(sessions)) {
+          throw new Error('Unexpected validation session response');
+        }
+
+        const completed = sessions.filter(session =>
+          session.status === 'completed' &&
+          session.mini_ookla_status === 'completed' &&
+          session.iperf3_status === 'completed' &&
+          session.session_id
+        );
+
+        const details = await Promise.all(
+          completed.map(async session => {
+            try {
+              const result = await fetch(
+                `/api/validation/sessions/${encodeURIComponent(session.session_id)}`
+              );
+
+              if (!result.ok) return null;
+
+              const detail = await result.json();
+              const miniResults = detail.mini_ookla_results;
+              const iperfResults = detail.iperf3_results;
+
+              if (
+                !Array.isArray(miniResults) || !miniResults.length ||
+                !Array.isArray(iperfResults) || !iperfResults.length
+              ) {
+                return null;
+              }
+
+              // Use the newest result from each tool in this session.
+              const newest = rows => [...rows].sort((a, b) => {
+                const timeA = Date.parse(a.timestamp || '') || 0;
+                const timeB = Date.parse(b.timestamp || '') || 0;
+                return timeB - timeA || Number(b.id || 0) - Number(a.id || 0);
+              })[0];
+
+              return {
+                mini: newest(miniResults),
+                iperf: newest(iperfResults),
+              };
+            } catch {
+              return null;
+            }
+          })
+        );
+
+        const paired = details.filter(Boolean);
+
+        const average = values => {
+          const valid = values
+            .map(Number)
+            .filter(value => Number.isFinite(value));
+
+          return valid.length
+            ? valid.reduce((sum, value) => sum + value, 0) / valid.length
+            : null;
+        };
+
+        const next = {
+          count: paired.length,
+          miniDownload: average(paired.map(item => item.mini.download_mbps)),
+          iperfDownload: average(paired.map(item => item.iperf.download_mbps)),
+          miniUpload: average(paired.map(item => item.mini.upload_mbps)),
+          iperfUpload: average(paired.map(item => item.iperf.upload_mbps)),
+        };
+
+        if (!cancelled) setAverages(next);
+      } catch (err) {
+        if (!cancelled) {
+          setError(err.message || 'Could not load validation averages');
+        }
+      } finally {
+        if (!cancelled) setLoading(false);
+      }
+    }
+
+    loadAverages();
+    return () => {
+      cancelled = true;
+    };
+  }, []);
+
+  const formatMbps = value =>
+    value === null || !Number.isFinite(value) ? '—' : value.toFixed(2);
+
+  const Comparison = ({ title, mini, iperf, arrow }) => {
+    const max = Math.max(1, mini ?? 0, iperf ?? 0);
+
+    return (
+      <article className="panel comparison-card">
+        <h3>{arrow} {title}</h3>
+        <p>Average throughput · Mbps</p>
+
+        {[['Mini-Ookla', mini, 'graph-download'],
+          ['iperf3', iperf, 'graph-upload']].map(([name, value, color]) => (
+          <div className="server-chart-row" key={name}>
+            <div className="server-chart-label">
+              <strong>{name}</strong>
+            </div>
+            <div className="server-bars">
+              <div className="validation-bar-line">
+                <div className="server-bar-track">
+                  <div
+                    className={`server-bar ${color}`}
+                    style={{
+                      width: `${Math.max(0, value ?? 0) / max * 100}%`,
+                    }}
+                  />
+                </div>
+                <b>{formatMbps(value)}</b>
+              </div>
+            </div>
+          </div>
+        ))}
+      </article>
+    );
+  };
+
+  return (
+    <section className="panel comparison-card validation-averages">
+      <h2>5. Validation Session Averages</h2>
+      <p>
+        Mini-Ookla versus iperf3 · completed sessions with both saved results
+      </p>
+
+      {loading ? (
+        <p>Loading validation averages…</p>
+      ) : error ? (
+        <p role="alert">{error}</p>
+      ) : !averages || averages.count === 0 ? (
+        <p>No completed paired validation measurements are available.</p>
+      ) : (
+        <>
+          <p>Based on {averages.count} paired completed sessions.</p>
+          <div className="throughput-charts-grid">
+            <Comparison
+              title="Download"
+              arrow="↓"
+              mini={averages.miniDownload}
+              iperf={averages.iperfDownload}
+            />
+            <Comparison
+              title="Upload"
+              arrow="↑"
+              mini={averages.miniUpload}
+              iperf={averages.iperfUpload}
+            />
+          </div>
+          <div className="comparison-legend">
+            <span className="legend-download">Mini-Ookla</span>
+            <span className="legend-upload">iperf3</span>
+          </div>
+          <p className="graph-footnote">
+            These are overall validation averages, not per-server iperf3
+            averages. The saved iperf3 records do not currently identify
+            individual servers.
+          </p>
+        </>
+      )}
+    </section>
   );
 }
 
@@ -673,6 +988,9 @@ function Iperf3Page({ history = [], loading, error }) {
     const number = Number(value)
     return Number.isFinite(number) ? number : null
   }
+
+
+
 
   const format = value => {
     const number = validNumber(value)
@@ -781,7 +1099,7 @@ function Iperf3Page({ history = [], loading, error }) {
         />
 
         <MetricCard
-          icon="✓"
+          icon="OK"
           label="Valid throughput"
           value={String(validRecords.length)}
           unit=""
@@ -871,8 +1189,8 @@ function Iperf3Page({ history = [], loading, error }) {
             </div>
 
             <div className="comparison-legend">
-              <span className="legend-download">● Download</span>
-              <span className="legend-upload">● Upload</span>
+              <span className="legend-download">↓ Download</span>
+              <span className="legend-upload">↑ Upload</span>
             </div>
             <p className="graph-footnote">
               The vertical scale adjusts to the largest displayed speed.
@@ -945,16 +1263,8 @@ function Iperf3Page({ history = [], loading, error }) {
 }
 
 
-function MeasurementHistoryPage({ history = [], query = '' }) {
-  const records = [...history]
-    .filter(record => record && record.id != null)
-    .sort((a, b) => Number(b.id) - Number(a.id))
-    .filter(record =>
-      `${record.id} ${record.server_id ?? ''} ${record.timestamp ?? ''}`
-        .toLowerCase()
-        .includes(query.toLowerCase())
-    )
 
+function MeasurementHistoryPage({ history = [], query = '' }) {
   const format = (value, decimals = 2) => {
     if (value === null || value === undefined || value === '') {
       return '—'
@@ -963,6 +1273,37 @@ function MeasurementHistoryPage({ history = [], query = '' }) {
     const number = Number(value)
     return Number.isFinite(number) ? number.toFixed(decimals) : '—'
   }
+
+  const records = [...history]
+    .filter(record => record && record.id != null)
+    .filter(record =>
+      `${record.id} ${record.server_id ?? ''} ${record.timestamp ?? ''}`
+        .toLowerCase()
+        .includes(query.toLowerCase())
+    )
+    .sort((a, b) => Number(b.id) - Number(a.id))
+
+  // Group records by server
+  const serverGroups = records.reduce((groups, record) => {
+    const server = record.server_id || 'Unknown'
+    if (!groups[server]) {
+      groups[server] = []
+    }
+    groups[server].push(record)
+    return groups
+  }, {})
+
+  // Sort server names naturally: server_01, server_02, server_03
+  const sortedServers = Object.keys(serverGroups).sort((a, b) =>
+    a.localeCompare(b, undefined, {
+      numeric: true,
+      sensitivity: 'base',
+    })
+  )
+
+  const latestRecord = [...history]
+    .filter(record => record && record.id != null)
+    .sort((a, b) => Number(b.id) - Number(a.id))[0]
 
   return (
     <div className="history-page">
@@ -983,9 +1324,7 @@ function MeasurementHistoryPage({ history = [], query = '' }) {
         <MetricCard
           icon="↓"
           label="Latest download"
-          value={format(history.length
-            ? [...history].sort((a, b) => Number(b.id) - Number(a.id))[0]?.download_mbps
-            : null)}
+          value={format(latestRecord?.download_mbps)}
           unit=" Mbps"
           tone="blue"
           foot="Latest saved record"
@@ -994,16 +1333,14 @@ function MeasurementHistoryPage({ history = [], query = '' }) {
         <MetricCard
           icon="↑"
           label="Latest upload"
-          value={format(history.length
-            ? [...history].sort((a, b) => Number(b.id) - Number(a.id))[0]?.upload_mbps
-            : null)}
+          value={format(latestRecord?.upload_mbps)}
           unit=" Mbps"
           tone="purple"
           foot="Latest saved record"
         />
 
         <MetricCard
-          icon="◷"
+          icon="=="
           label="Matching records"
           value={String(records.length)}
           unit=""
@@ -1012,68 +1349,575 @@ function MeasurementHistoryPage({ history = [], query = '' }) {
         />
       </section>
 
-      <article className="panel history-panel">
+      {sortedServers.map(server => (
+        <article className="panel history-panel" key={server}>
+          <div className="panel-heading">
+            <div>
+              <span className="panel-kicker">MEASUREMENT ARCHIVE</span>
+              <h2>
+                {server === 'Unknown' ? 'Unknown Server' : server}
+              </h2>
+              <p>Saved Mini-Ookla records, newest first</p>
+            </div>
+            <span className="count-tag">
+              {serverGroups[server].length} records
+            </span>
+          </div>
+
+          <div className="table-scroll">
+            <table>
+              <thead>
+                <tr>
+                  <th>ID</th>
+                  <th>Server</th>
+                  <th>Download</th>
+                  <th>Upload</th>
+                  <th>Latency</th>
+                  <th>Jitter</th>
+                  <th>Packet loss</th>
+                  <th>Timestamp</th>
+                </tr>
+              </thead>
+
+              <tbody>
+                {serverGroups[server].map(record => (
+                  <tr key={record.id}>
+                    <td className="muted-cell">#{record.id}</td>
+                    <td>{record.server_id || 'Unknown'}</td>
+                    <td className="cyan-cell">
+                      {format(record.download_mbps)} Mbps
+                    </td>
+                    <td className="purple-cell">
+                      {format(record.upload_mbps)} Mbps
+                    </td>
+                    <td>{format(record.latency_ms)} ms</td>
+                    <td>
+                      {format(record.jitter_ms ?? record.jitter)} ms
+                    </td>
+                    <td>
+                      {format(
+                        record.packet_loss_percent ?? record.packet_loss
+                      )}%
+                    </td>
+                    <td>{record.timestamp || '—'}</td>
+                  </tr>
+                ))}
+              </tbody>
+            </table>
+          </div>
+
+          <div className="table-foot">
+            Showing saved backend measurements. Missing values are
+            displayed as unavailable rather than treated as zero.
+          </div>
+        </article>
+      ))}
+
+      {records.length === 0 && (
+        <div className="panel graph-empty">
+          No matching measurements found.
+        </div>
+      )}
+    </div>
+  )
+}
+
+
+
+function ValidationSessionsPage() {
+  const [sessions, setSessions] = useState([])
+  const [selectedSessionId, setSelectedSessionId] = useState('')
+  const [selectedSession, setSelectedSession] = useState(null)
+  const [historicalSessions, setHistoricalSessions] = useState([])
+  const [loading, setLoading] = useState(true)
+  const [detailLoading, setDetailLoading] = useState(false)
+  const [error, setError] = useState('')
+  const [detailError, setDetailError] = useState('')
+
+  useEffect(() => {
+    let cancelled = false
+    let fetching = false
+
+    async function loadSessions() {
+      if (fetching) return
+      fetching = true
+
+      try {
+        const response = await fetch('/api/validation/sessions')
+        if (!response.ok) {
+          throw new Error(`Session API returned HTTP ${response.status}`)
+        }
+
+        const data = await response.json()
+        const items = Array.isArray(data) ? data : data.sessions
+
+        if (!Array.isArray(items)) {
+          throw new Error('Unexpected validation session response format')
+        }
+
+        if (!cancelled) {
+          setSessions(items)
+          setError('')
+          setSelectedSessionId(current =>
+            current && items.some(item => item.session_id === current)
+              ? current
+              : items[0]?.session_id || ''
+          )
+        }
+      } catch (err) {
+        if (!cancelled) {
+          setError(err.message || 'Unable to load validation sessions')
+        }
+      } finally {
+        fetching = false
+        if (!cancelled) setLoading(false)
+      }
+    }
+
+    loadSessions()
+    const timer = setInterval(loadSessions, 5000)
+
+    return () => {
+      cancelled = true
+      clearInterval(timer)
+    }
+  }, [])
+
+  // Load paired measurements for every fully completed validation session.
+  // This effect belongs here (not in Iperf3Page), because it uses the
+  // validation session list and populates the historical comparison graphs.
+  useEffect(() => {
+    let cancelled = false
+
+    const latest = records => {
+      if (!Array.isArray(records) || records.length === 0) return null
+
+      return [...records].sort((a, b) => {
+        const timeA = Date.parse(a.timestamp || '') || 0
+        const timeB = Date.parse(b.timestamp || '') || 0
+        return timeB - timeA || Number(b.id || 0) - Number(a.id || 0)
+      })[0]
+    }
+
+    async function loadHistoricalSessions() {
+      const completed = sessions.filter(item =>
+        String(item.status || '').toLowerCase() === 'completed' &&
+        String(item.mini_ookla_status || '').toLowerCase() === 'completed' &&
+        String(item.iperf3_status || '').toLowerCase() === 'completed' &&
+        Boolean(item.session_id)
+      )
+
+      try {
+        const details = await Promise.all(
+          completed.map(async item => {
+            try {
+              const response = await fetch(
+                `/api/validation/sessions/${encodeURIComponent(item.session_id)}`
+              )
+              if (!response.ok) {
+                console.warn(
+                  'Could not load historical session:',
+                  item.session_id,
+                  response.status
+                )
+                return null
+              }
+
+              const detail = await response.json()
+              const mini = latest(detail.mini_ookla_results)
+              const iperf = latest(detail.iperf3_results)
+
+              // Keep only paired sessions that have both saved result records.
+              if (!mini || !iperf) return null
+
+              return {
+                session_id: detail.session_id || item.session_id,
+                created_at: detail.created_at || item.created_at || '',
+                mini,
+                iperf,
+              }
+            } catch (err) {
+              console.warn(
+                'Could not read historical session:',
+                item.session_id,
+                err
+              )
+              return null
+            }
+          })
+        )
+
+        if (!cancelled) {
+          const usable = details
+            .filter(Boolean)
+            .sort((a, b) =>
+              (Date.parse(a.created_at || '') || 0) -
+              (Date.parse(b.created_at || '') || 0)
+            )
+
+          console.log('Historical graph sessions loaded:', usable.length)
+          setHistoricalSessions(usable)
+        }
+      } catch (err) {
+        console.error('Historical validation graph loading failed:', err)
+        if (!cancelled) setHistoricalSessions([])
+      }
+    }
+
+    if (sessions.length > 0) {
+      loadHistoricalSessions()
+    } else {
+      setHistoricalSessions([])
+    }
+
+    return () => {
+      cancelled = true
+    }
+  }, [sessions])
+
+  useEffect(() => {
+    if (!selectedSessionId) {
+      setSelectedSession(null)
+      return undefined
+    }
+
+    let cancelled = false
+    let fetching = false
+
+    async function loadSessionDetails() {
+      if (fetching) return
+      fetching = true
+      setDetailLoading(true)
+
+      try {
+        const response = await fetch(
+          `/api/validation/sessions/${encodeURIComponent(selectedSessionId)}`
+        )
+        if (!response.ok) {
+          throw new Error(`Session details returned HTTP ${response.status}`)
+        }
+
+        const data = await response.json()
+        if (!cancelled) {
+          setSelectedSession(data)
+          setDetailError('')
+        }
+      } catch (err) {
+        if (!cancelled) {
+          setDetailError(err.message || 'Unable to load session details')
+        }
+      } finally {
+        fetching = false
+        if (!cancelled) setDetailLoading(false)
+      }
+    }
+
+    loadSessionDetails()
+    const timer = setInterval(loadSessionDetails, 5000)
+
+    return () => {
+      cancelled = true
+      clearInterval(timer)
+    }
+  }, [selectedSessionId])
+
+  const format = value => {
+    if (value === null || value === undefined || value === '') return '—'
+    const number = Number(value)
+    return Number.isFinite(number) ? number.toFixed(2) : String(value)
+  }
+
+  const latest = records => {
+    if (!Array.isArray(records) || records.length === 0) return null
+    return [...records].sort((a, b) => {
+      const timeA = Date.parse(a.timestamp || '') || 0
+      const timeB = Date.parse(b.timestamp || '') || 0
+      return timeB - timeA || Number(b.id || 0) - Number(a.id || 0)
+    })[0]
+  }
+
+  const mini = latest(selectedSession?.mini_ookla_results)
+  const iperf = latest(selectedSession?.iperf3_results)
+  const session = selectedSession
+  const status = String(session?.status || 'unknown').toLowerCase()
+
+  const statusClass = value =>
+    `validation-status status-${String(value || 'unknown').toLowerCase()}`
+
+  const comparisonRows = [
+    { label: 'Download', key: 'download_mbps', unit: 'Mbps' },
+    { label: 'Upload', key: 'upload_mbps', unit: 'Mbps' },
+  ]
+
+  return (
+    <div className="validation-page">
+      <div className="comparison-notice">
+        Measurements are compared only when they belong to the selected validation session.
+      </div>
+
+      <section className="metrics-grid">
+        <MetricCard
+          icon="#"
+          label="Validation sessions"
+          value={String(sessions.length)}
+          unit=""
+          tone="cyan"
+          foot="Sessions returned by backend"
+        />
+        <MetricCard
+          icon="OK"
+          label="Completed"
+          value={String(sessions.filter(s => s.status === 'completed').length)}
+          unit=""
+          tone="blue"
+          foot="Both tests completed"
+        />
+        <MetricCard
+          icon=">>"
+          label="Running"
+          value={String(sessions.filter(s => s.status === 'running').length)}
+          unit=""
+          tone="amber"
+          foot="In progress or pending"
+        />
+        <MetricCard
+          icon="!"
+          label="Partial / failed"
+          value={String(sessions.filter(s =>
+            ['partial', 'failed'].includes(String(s.status).toLowerCase())
+          ).length)}
+          unit=""
+          tone="purple"
+          foot="At least one test did not complete"
+        />
+      </section>
+
+      <article className="panel history-panel validation-sessions-panel">
         <div className="panel-heading">
           <div>
-            <span className="panel-kicker">MEASUREMENT ARCHIVE</span>
-            <h2>Complete Measurement History</h2>
-            <p>Saved Mini-Ookla records, newest first</p>
+            <span className="panel-kicker">VALIDATION ARCHIVE</span>
+            <h2>Validation Sessions</h2>
+            <p>Select a session to inspect the measurements linked to it.</p>
           </div>
-          <span className="count-tag">{records.length} records</span>
+          <span className="count-tag">{sessions.length} sessions</span>
         </div>
 
-        <div className="table-scroll">
-          <table>
-            <thead>
-              <tr>
-                <th>ID</th>
-                <th>Server</th>
-                <th>Download</th>
-                <th>Upload</th>
-                <th>Latency</th>
-                <th>Jitter</th>
-                <th>Packet loss</th>
-                <th>Timestamp</th>
-              </tr>
-            </thead>
-            <tbody>
-              {records.map(record => (
-                <tr key={record.id}>
-                  <td className="muted-cell">#{record.id}</td>
-                  <td>
-                    {record.server_id || 'Unknown'}
-                  </td>
-                  <td className="cyan-cell">
-                    {format(record.download_mbps)} Mbps
-                  </td>
-                  <td className="purple-cell">
-                    {format(record.upload_mbps)} Mbps
-                  </td>
-                  <td>{format(record.latency_ms)} ms</td>
-                  <td>{format(record.jitter_ms ?? record.jitter)} ms</td>
-                  <td>
-                    {format(
-                      record.packet_loss_percent ?? record.packet_loss
-                    )}%
-                  </td>
-                  <td>{record.timestamp || '—'}</td>
-                </tr>
-              ))}
-            </tbody>
-          </table>
-        </div>
+        {error && <div className="graph-empty">{error}</div>}
+        {loading && <div className="graph-empty">Loading validation sessions...</div>}
 
-        {records.length === 0 && (
+        {!loading && !error && sessions.length === 0 && (
           <div className="graph-empty">
-            No matching measurements found.
+            No validation sessions have been recorded yet. A session will appear
+            here after the combined workflow creates one.
           </div>
         )}
 
-        <div className="table-foot">
-          Showing saved backend measurements. Missing values are displayed
-          as unavailable rather than treated as zero.
-        </div>
+        {sessions.length > 0 && (
+          <div className="table-scroll">
+            <table>
+              <thead>
+                <tr>
+                  <th>Session ID</th>
+                  <th>Mini-Ookla</th>
+                  <th>iperf3</th>
+                  <th>Overall status</th>
+                  <th>Created</th>
+                </tr>
+              </thead>
+              <tbody>
+                {sessions.map(item => (
+                  <tr
+                    key={item.session_id}
+                    className={selectedSessionId === item.session_id
+                      ? 'validation-selected-row'
+                      : ''}
+                  >
+                    <td>
+                      <button
+                        className="validation-session-select"
+                        onClick={() => setSelectedSessionId(item.session_id)}
+                      >
+                        {item.session_id}
+                      </button>
+                    </td>
+                    <td>
+                      <span className={statusClass(item.mini_ookla_status)}>
+                        {item.mini_ookla_status || 'pending'}
+                      </span>
+                    </td>
+                    <td>
+                      <span className={statusClass(item.iperf3_status)}>
+                        {item.iperf3_status || 'pending'}
+                      </span>
+                    </td>
+                    <td>
+                      <span className={statusClass(item.status)}>
+                        {item.status || 'unknown'}
+                      </span>
+                    </td>
+                    <td>{item.created_at || '—'}</td>
+                  </tr>
+                ))}
+              </tbody>
+            </table>
+          </div>
+        )}
       </article>
+
+      {selectedSessionId && (
+        <article className="panel validation-detail-panel">
+          <div className="panel-heading">
+            <div>
+              <span className="panel-kicker">SESSION DETAILS</span>
+              <h2>{selectedSessionId}</h2>
+              <p>
+                {session?.created_at || 'Creation time unavailable'}
+                {session?.updated_at ? ` · Updated ${session.updated_at}` : ''}
+              </p>
+            </div>
+            <span className={statusClass(status)}>{status}</span>
+          </div>
+
+          {detailLoading && !session && (
+            <div className="graph-empty">Loading selected session...</div>
+          )}
+          {detailError && <div className="graph-empty">{detailError}</div>}
+
+          {session && (
+            <>
+              <div className="validation-test-grid">
+                <section className="validation-test-card">
+                  <span className="panel-kicker">TEST 01</span>
+                  <h3>Mini-Ookla</h3>
+                  <span className={statusClass(session.mini_ookla_status)}>
+                    {session.mini_ookla_status || 'pending'}
+                  </span>
+                  {session.mini_ookla_error && (
+                    <p className="validation-error">{session.mini_ookla_error}</p>
+                  )}
+                  <div className="validation-test-metrics">
+                    <div><span>Download</span><strong>{format(mini?.download_mbps)} Mbps</strong></div>
+                    <div><span>Upload</span><strong>{format(mini?.upload_mbps)} Mbps</strong></div>
+                    <div><span>Latency</span><strong>{format(mini?.latency_ms)} ms</strong></div>
+                    <div><span>Saved result ID</span><strong>{mini?.id ?? '—'}</strong></div>
+                  </div>
+                  {!mini && <p className="validation-muted">No Mini-Ookla result is linked to this session yet.</p>}
+                </section>
+
+                <section className="validation-test-card">
+                  <span className="panel-kicker">TEST 02</span>
+                  <h3>iperf3</h3>
+                  <span className={statusClass(session.iperf3_status)}>
+                    {session.iperf3_status || 'pending'}
+                  </span>
+                  {session.iperf3_error && (
+                    <p className="validation-error">{session.iperf3_error}</p>
+                  )}
+                  <div className="validation-test-metrics">
+                    <div><span>Download</span><strong>{format(iperf?.download_mbps)} Mbps</strong></div>
+                    <div><span>Upload</span><strong>{format(iperf?.upload_mbps)} Mbps</strong></div>
+                    <div><span>Duration</span><strong>{format(iperf?.duration_sec)} s</strong></div>
+                    <div><span>Saved result ID</span><strong>{iperf?.id ?? '—'}</strong></div>
+                  </div>
+                  {!iperf && <p className="validation-muted">No iperf3 result is linked to this session yet.</p>}
+                </section>
+              </div>
+
+              <div className="validation-comparison">
+                <div className="panel-heading">
+                  <div>
+                    <span className="panel-kicker">SIDE-BY-SIDE</span>
+                    <h2>Throughput comparison</h2>
+                    <p>Difference is iperf3 minus Mini-Ookla; negative values mean iperf3 measured lower.</p>
+                  </div>
+                </div>
+                <div className="table-scroll">
+                  <table>
+                    <thead>
+                      <tr><th>Metric</th><th>Mini-Ookla</th><th>iperf3</th><th>Difference</th><th>Mini-Ookla Difference (%)</th></tr>
+                    </thead>
+                    
+<tbody>
+  {comparisonRows.map(row => {
+    const miniValue = mini?.[row.key]
+    const iperfValue = iperf?.[row.key]
+
+    const a = Number(miniValue)
+    const b = Number(iperfValue)
+
+    const comparable =
+      miniValue !== null &&
+      miniValue !== undefined &&
+      miniValue !== '' &&
+      iperfValue !== null &&
+      iperfValue !== undefined &&
+      iperfValue !== '' &&
+      Number.isFinite(a) &&
+      Number.isFinite(b)
+
+    const percentageComparable =
+      comparable && b !== 0
+
+    const percentageDifference = percentageComparable
+      ? ((a - b) / b) * 100
+      : null
+
+    return (
+      <tr key={row.key}>
+        <td>{row.label}</td>
+        <td>{miniValue !== null && miniValue !== undefined && miniValue !== ''
+          ? `${format(miniValue)} ${row.unit}`
+          : '—'}</td>
+        <td>{iperfValue !== null && iperfValue !== undefined && iperfValue !== ''
+          ? `${format(iperfValue)} ${row.unit}`
+          : '—'}</td>
+        <td>
+          {comparable
+            ? `${(a - b).toFixed(2)} ${row.unit}`
+            : 'Not available'}
+        </td>
+        <td>
+          {percentageDifference !== null
+            ? `${percentageDifference > 0 ? '+' : ''}${percentageDifference.toFixed(2)}%`
+            : 'Not available'}
+        </td>
+      </tr>
+    )
+  })}
+</tbody>
+
+                  </table>
+                </div>
+                
+<div className="throughput-charts-grid">
+  <ThroughputComparisonChart
+    title="Download Throughput"
+    history={historicalSessions.map(item => ({
+      session_id: item.session_id,
+      mini: item.mini?.download_mbps,
+      iperf: item.iperf?.download_mbps,
+    }))}
+  />
+
+  <ThroughputComparisonChart
+    title="Upload Throughput"
+    history={historicalSessions.map(item => ({
+      session_id: item.session_id,
+      mini: item.mini?.upload_mbps,
+      iperf: item.iperf?.upload_mbps,
+    }))}
+  />
+</div>
+
+                <p className="graph-footnote">
+                  These tools may use different test methods and directions. Treat differences as
+                  an observed comparison, not proof that one tool is more accurate.
+                </p>
+              </div>
+            </>
+          )}
+        </article>
+      )}
     </div>
   )
 }
@@ -1281,6 +2125,7 @@ const latestResult = sortedHistory[0]
 const showingComparison = activePage === 'Performance Comparison'
 const showingHistory = activePage === 'Measurement History'
 const showingIperf3 = activePage === 'iperf3 Performance'
+const showingValidation = activePage === 'Validation Sessions'
 
 
 
@@ -1288,7 +2133,7 @@ const showingIperf3 = activePage === 'iperf3 Performance'
     <div className="app-shell">
       <aside className="sidebar">
         <div className="brand">
-          <div className="brand-mark">∿</div>
+          <div className="brand-mark">ST</div>
           <div><strong>SpeedTest <span>Network</span></strong><small>Distributed Network Analytics</small></div>
         </div>
 
@@ -1305,9 +2150,20 @@ const showingIperf3 = activePage === 'iperf3 Performance'
 
         <div className="sidebar-bottom">
           <div className="system-label"><span className="pulse-dot" /> SYSTEM STATUS</div>
-          <div className="health-row"><span className="status-dot green" /> Flask API <span>Reachable</span></div>
-          <div className="health-row"><span className="status-dot green" /> Server A <span>Probed</span></div>
-          <div className="health-row"><span className="status-dot red" /> Server B/C <span>Unverified</span></div>
+          <div className="health-row">
+  <span className={`status-dot ${apiError ? 'red' : 'green'}`} />
+  Flask API <span>{apiError ? 'Unreachable' : 'Connected'}</span>
+</div>
+
+{servers.map(server => (
+  <div className="health-row" key={server.id}>
+    <span className={`status-dot ${
+      server.status === 'Online' ? 'green' :
+      server.status === 'Offline' ? 'red' : ''
+    }`} />
+    {server.name} <span>{server.status}</span>
+  </div>
+))}
           <div className="sidebar-footer">NETWORK SPEED-TEST PLATFORM<br />Development environment</div>
         </div>
       </aside>
@@ -1315,16 +2171,30 @@ const showingIperf3 = activePage === 'iperf3 Performance'
       <main className="main-area">
         <header className="topbar">
           <div className="breadcrumb">Workspace <span>/</span> <strong>{activePage}</strong></div>
-          <label className="search-box"><span>⌕</span><input value={query} onChange={e => setQuery(e.target.value)} placeholder="Search servers or test history..." /></label>
+          <label className="search-box"><span>Q</span><input value={query} onChange={e => setQuery(e.target.value)} placeholder="Search servers or test history..." /></label>
           <div className="top-status"><span className="pulse-dot" /><div><strong>API connected</strong><small>Local development</small></div></div>
-          <div className="profile"><div className="avatar">H</div><div><strong>Haneesh</strong><small>Developer</small></div></div>
         </header>
 
 
 
 
 <div className="page-content">
-  {showingHistory ? (
+  {showingValidation ? (
+    <>
+      <div className="page-heading">
+        <div>
+          <div className="eyebrow">
+            <span className="pulse-dot" /> VALIDATION WORKSPACE
+          </div>
+          <h1>Validation Sessions</h1>
+          <p>
+            Review paired Mini-Ookla and iperf3 measurements from the same session.
+          </p>
+        </div>
+      </div>
+      <ValidationSessionsPage />
+    </>
+  ) : showingHistory ? (
     <>
       <div className="page-heading">
         <div>
@@ -1400,7 +2270,7 @@ const showingIperf3 = activePage === 'iperf3 Performance'
           </div>
 
           <section className="metrics-grid">
-            <MetricCard icon="◈" label="Configured servers" value="3" unit="" tone="cyan" foot="1 probe verified" />
+            <MetricCard icon="NET" label="Configured servers" value="3" unit="" tone="cyan" foot={`${servers.filter(server => server.status === 'Online').length} servers online`} />
 
 <MetricCard
   icon="↓"
@@ -1423,7 +2293,7 @@ const showingIperf3 = activePage === 'iperf3 Performance'
 
 
 <MetricCard
-  icon="ϟ"
+  icon="MS"
   label="Latest latency"
   value={latestResult ? Number(latestResult.latency_ms).toFixed(2) : '—'}
   unit=" ms"
@@ -1448,7 +2318,7 @@ const showingIperf3 = activePage === 'iperf3 Performance'
 }><animateMotion dur={servers[i]?.status === 'Online' ? '2.5s' : '6s'} repeatCount="indefinite" path={`M ${line[0]} ${line[1]} C 280 ${line[1]}, 340 ${line[3]}, ${line[2]} ${line[3]}`} /></circle></g>)}
                 </svg>
 
-                <div className="node client-node"><div className="node-orb">⌘</div><strong>Your client</strong><small>HP · Windows</small></div>
+                <div className="node client-node"><div className="node-orb">PC</div><strong>Your client</strong><small>HP · Windows</small></div>
 
 {servers.map((server, i) => (
   <div
@@ -1460,7 +2330,7 @@ const showingIperf3 = activePage === 'iperf3 Performance'
         server.status === 'Online' ? 'online' : 'offline'
       }`}
     >
-      ▤
+      SRV
     </div>
 
     <div className="node-copy">
@@ -1483,7 +2353,15 @@ const showingIperf3 = activePage === 'iperf3 Performance'
             </article>
 
             <article className="panel performance-panel">
-              <div className="panel-heading"><div><span className="panel-kicker">PERFORMANCE TELEMETRY</span><h2>Throughput overview</h2><p>Historical records · not a live stream</p></div><select value={period} onChange={e => setPeriod(e.target.value)}><option>Last hour</option><option>24 hours</option><option>7 days</option></select></div>
+              
+<div className="panel-heading">
+  <div>
+    <span className="panel-kicker">PERFORMANCE TELEMETRY</span>
+    <h2>Throughput overview</h2>
+    <p>Historical records · not a live stream</p>
+  </div>
+</div>
+
 
 <div className="chart-stats">
   <div>
@@ -1531,3 +2409,15 @@ const showingIperf3 = activePage === 'iperf3 Performance'
 }
 
 export default App
+
+
+
+
+
+
+
+
+
+
+
+

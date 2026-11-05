@@ -1,70 +1,42 @@
 
-import socket
-import json
-import time
-
-DISCOVERY_PORTS = [6000, 6001, 6002]
-DISCOVERY_TIMEOUT = 2
-BROADCAST_ADDRESS = "255.255.255.255"
+from federation.server_registry import get_servers
+from federation.server_probe import probe_server
 
 
-def discover_servers(timeout=DISCOVERY_TIMEOUT):
+def discover_servers(timeout=2):
+    """Discover configured Mini-Ookla servers using TCP probes."""
     servers = []
-    seen_servers = set()
 
-    with socket.socket(socket.AF_INET, socket.SOCK_DGRAM) as sock:
-        sock.setsockopt(socket.SOL_SOCKET, socket.SO_BROADCAST, 1)
-        sock.setsockopt(socket.SOL_SOCKET, socket.SO_REUSEADDR, 1)
-        sock.settimeout(0.2)
-        sock.bind(("", 0))
+    print("Searching for Mini-Ookla servers...")
 
-        for port in DISCOVERY_PORTS:
-            sock.sendto(
-                b"DISCOVER_SERVER",
-                (BROADCAST_ADDRESS, port)
-            )
+    try:
+        configured_servers = get_servers()
+    except (OSError, ValueError, KeyError) as error:
+        print(f"Could not load server registry: {error}")
+        return servers
 
-        print("Searching for Mini-Ookla servers...")
-        start = time.monotonic()
+    for server in configured_servers:
+        try:
+            latency = probe_server(server)
 
-        while time.monotonic() - start < timeout:
-            try:
-                data, address = sock.recvfrom(1024)
-                response = json.loads(data.decode("utf-8"))
-
-                if not isinstance(response, dict):
-                    continue
-
-                if "server_id" not in response or "port" not in response:
-                    continue
-
-                response["host"] = address[0]
-
-                server_key = (
-                    response["server_id"],
-                    response["host"],
-                    int(response["port"])
+            if latency is not None:
+                servers.append(server)
+                print(
+                    f"Discovered {server['server_id']} "
+                    f"at {server['host']}:{server['port']} "
+                    f"(RTT: {latency:.2f} ms)"
+                )
+            else:
+                print(
+                    f"{server.get('server_id', 'Unknown server')} "
+                    "- unavailable"
                 )
 
-                if server_key not in seen_servers:
-                    seen_servers.add(server_key)
-                    servers.append(response)
-                    print(
-                        f"Discovered {response['server_id']} "
-                        f"at {response['host']}:{response['port']}"
-                    )
-
-            except socket.timeout:
-                continue
-            except (json.JSONDecodeError, UnicodeDecodeError, ValueError, TypeError):
-                continue
+        except (KeyError, OSError, TypeError, ValueError) as error:
+            print(
+                f"Could not check "
+                f"{server.get('server_id', 'Unknown server')}: {error}"
+            )
 
     print(f"Discovery finished: {len(servers)} server(s) found.")
     return servers
-
-
-if __name__ == "__main__":
-    discovered = discover_servers()
-    print("\nDiscovered servers:")
-    for server in discovered:
-        print(server)

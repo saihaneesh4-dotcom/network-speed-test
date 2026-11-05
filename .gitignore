@@ -60,11 +60,19 @@ tempCodeRunnerFile.py
 
 # Local backups
 *.backup
+*.bak
+**/*.bak
+**/*.backup
+**/*.tmp
+**/*.tmp.*
+
+# Generated project artifacts
+launcher_backups/
+validation_results/
+*.db
 
 # Temporary token files
 token.tmp
 
 # Local certificate files
 rootCA.pem
-
-*.db

@@ -1,98 +1,100 @@
 
 import socket
-import time
 import threading
+import time
+import uuid
 
 
-def upload_stream(host, port, duration, ramp_up_sec):
+def upload_stream(
+    host, port, duration, ramp_up_sec,
+    streams, index, session_id, results
+):
     client = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
-    client.settimeout(2)
+    client.settimeout(duration + ramp_up_sec + 30)
 
     try:
         client.connect((host, port))
-        total_duration = duration + ramp_up_sec
 
-        client.sendall(
-            f"UPLOAD {total_duration} 1 {ramp_up_sec}\n".encode()
+        command = (
+            f"TEST UPLOAD {session_id} {duration} "
+            f"{ramp_up_sec} {streams} {index}\n"
         )
+        client.sendall(command.encode())
 
-        buffer = b""
-
-        while b"\n" not in buffer:
+        response = b""
+        while b"\n" not in response:
             data = client.recv(1024)
             if not data:
-                return 0
-            buffer += data
+                raise ConnectionError("Server closed before GO")
+            response += data
 
-        response, remaining = buffer.split(b"\n", 1)
+        line, _ = response.split(b"\n", 1)
+        status = line.decode().strip()
 
-        if response.decode().strip() != "READY":
-            return 0
+        if status != "GO":
+            raise RuntimeError(f"Server response: {status}")
 
-        start_time = time.perf_counter()
-        data = b"x" * 65536
+        payload = b"x" * 65536
+        deadline = time.monotonic() + ramp_up_sec + duration + 3
 
-        while time.perf_counter() - start_time < total_duration:
+        while time.monotonic() < deadline:
             try:
-                client.sendall(data)
-            except (BrokenPipeError, ConnectionResetError, socket.timeout):
+                client.sendall(payload)
+            except (OSError, socket.timeout):
                 break
 
         try:
             client.shutdown(socket.SHUT_WR)
         except OSError:
-            return 0
+            pass
 
-        client.settimeout(5)
-        buffer = remaining
+        response = b""
+        while b"\n" not in response:
+            data = client.recv(1024)
+            if not data:
+                raise ConnectionError("Missing RESULT from server")
+            response += data
 
-        while b"\n" not in buffer:
-            received = client.recv(1024)
-            if not received:
-                return 0
-            buffer += received
+        line = response.split(b"\n", 1)[0].decode().strip().split()
 
-        response = buffer.split(b"\n", 1)[0].decode().strip()
-        parts = response.split()
+        if len(line) != 2 or line[0] != "RESULT":
+            raise RuntimeError(f"Unexpected response: {' '.join(line)}")
 
-        if len(parts) == 2 and parts[0] == "RESULT":
-            return int(parts[1])
+        results[index] = int(line[1])
 
-        return 0
-
-    except (OSError, ValueError):
-        return 0
+    except (OSError, ValueError, RuntimeError, ConnectionError) as error:
+        print(f"[UPLOAD {index}] Failed: {error}")
+        results[index] = 0
 
     finally:
         client.close()
 
 
 def measure_parallel_upload(
-    host,
-    port,
-    duration=5,
-    streams=4,
-    ramp_up_sec=2
+    host, port, duration=5, streams=4, ramp_up_sec=2
 ):
+    session_id = uuid.uuid4().hex
     results = [0] * streams
     threads = []
-    start_event = threading.Event()
 
-    def run_stream(index):
-        start_event.wait()
-        results[index] = upload_stream(
-            host, port, duration, ramp_up_sec
+    for index in range(streams):
+        thread = threading.Thread(
+            target=upload_stream,
+            args=(
+                host, port, duration, ramp_up_sec,
+                streams, index, session_id, results
+            )
         )
-
-    for i in range(streams):
-        thread = threading.Thread(target=run_stream, args=(i,))
         threads.append(thread)
         thread.start()
-
-    start_event.set()
 
     for thread in threads:
         thread.join()
 
     total_bytes = sum(results)
-    return total_bytes * 8 / duration / 1_000_000
+    speed = total_bytes * 8 / duration / 1_000_000
+
+    print(f"[UPLOAD] Per-stream bytes: {results}")
+    print(f"[UPLOAD] Total: {speed:.2f} Mbps")
+
+    return speed

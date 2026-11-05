@@ -1,3 +1,4 @@
+
 import socket
 import json
 import time
@@ -30,7 +31,7 @@ def discover_iperf3_server():
                     continue
 
                 return {
-                    "host": address[0],
+                    "host": info.get("host", address[0]),
                     "port": int(info["port"])
                 }
 

@@ -1,4 +1,4 @@
-
+﻿
 import react from '@vitejs/plugin-react'
 import { defineConfig } from 'vite'
 import { readFile } from 'node:fs/promises'
@@ -51,12 +51,12 @@ export default defineConfig({
 server: {
   proxy: {
     '/api': {
-      target: 'http://10.56.66.133:5000',
+      target: 'http://10.149.106.133:5000',
       changeOrigin: true,
       rewrite: (path) => path.replace(/^\/api/, ''),
     },
     '/iperf3-api': {
-      target: 'http://10.56.66.133:5000',
+      target: 'http://10.149.106.133:5000',
       changeOrigin: true,
       rewrite: (path) => path.replace(/^\/iperf3-api/, '/iperf3'),
     },
@@ -64,3 +64,15 @@ server: {
 },
 
 })
+
+
+
+
+
+
+
+
+
+
+
+
